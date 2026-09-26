@@ -1,0 +1,10 @@
+[project]
+name = "astrbot-plugin-dota2assistant"
+version = "0.26"
+description = "Dota2 助手插件，查询玩家战绩、英雄数据、物品信息、比赛详情、实时比赛和职业赛事。"
+requires-python = ">=3.10"
+dependencies = ["aiohttp"]
+
+[tool.ruff]
+line-length = 120
+target-version = "py310"

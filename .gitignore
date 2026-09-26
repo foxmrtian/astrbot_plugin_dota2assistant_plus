@@ -1,0 +1,39 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.eggs/
+build/
+dist/
+
+# 虚拟环境
+.venv/
+venv/
+env/
+
+# 测试 / 缓存
+.pytest_cache/
+.coverage
+htmlcov/
+
+# 运行时图标缓存（首次使用时自动下载，不入库）
+assets/icon_cache/
+
+# 本地数据（绑定账号 SQLite 等，含用户隐私）
+data/
+*.db
+*.sqlite
+*.sqlite3
+
+# 本地备份与调试产物
+backup*/
+scratch/
+*.bak
+*.tgz
+
+# 编辑器 / 系统
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db

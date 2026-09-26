@@ -1,0 +1,20 @@
+name: astrbot_plugin_dota2assistant_plus
+desc: Dota2 助手插件，查询玩家战绩、英雄数据、物品信息、比赛详情、实时比赛和职业赛事。
+short_desc: Dota2 助手插件，查询玩家战绩、英雄数据、物品信息、比赛详情、实时比赛和职业赛事。
+version: "0.26"
+author: foxmrtian
+support_platforms:
+  - aiocqhttp
+  - qq_official
+  - qq_official_webhook
+  - telegram
+  - discord
+  - wecom
+  - lark
+  - dingtalk
+  - kook
+  - satori
+  - webchat
+astrbot_version: ">=4.16,<5"
+requirements:
+  - aiohttp

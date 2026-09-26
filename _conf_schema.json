@@ -1,0 +1,83 @@
+{
+  "card_theme_preset": {
+    "description": "卡片主题",
+    "type": "string",
+    "default": "light",
+    "options": ["light", "dark-gold", "pink", "navy-gold"],
+    "hint": "四套预设主题，选一个即可：light＝蓝白（白底 + 蓝强调，默认）；dark-gold＝深色暗金（近黑暖调底 + 暗金强调，沉稳电竞感）；pink＝粉色（粉底 + 玫红强调，柔和可爱）；navy-gold＝深蓝暗金（深蓝底 #0a1942 + 暗金标题、正文白色）。不开放逐色自定义，保证整张卡片风格统一。"
+  },
+  "default_language": {
+    "description": "英雄/物品名称默认语言",
+    "type": "string",
+    "default": "cn"
+  },
+  "enable_fallback_commands": {
+    "description": "是否启用 /dota 斜杠命令",
+    "type": "bool",
+    "default": true
+  },
+  "enable_image_output": {
+    "type": "bool",
+    "default": true,
+    "description": "图片回复",
+    "hint": "开启（默认）：把查询结果渲染成卡片图片发送，排版好看、总结附在图片底部。关闭：改为直接发送 Markdown 文档（纯文字），数据可以选中复制、可搜索，但少了卡片样式。图片渲染依赖网络 t2i 服务，若该服务不稳定也可关掉此项。两种模式下的 /dota 命令都可用 --text / --image 临时覆盖本次输出。"
+  },
+  "prefer_local_render": {
+    "type": "bool",
+    "default": true,
+    "description": "优先本地渲染卡片",
+    "hint": "开启（默认，**强烈建议保持**）：跳过网络 t2i、直接用本地 Pillow 渲染卡片。网络 t2i 端点实测极不稳定（504 错误、超时、单端点 58 秒慢），在查询的同步流水线里会把响应拖到超时、导致**图片生成了却发不到你端**；本地渲染 match 卡不到 1 秒、样式与网络版一致，稳定可靠。仅在本地渲染失败的极少数情况下才退回网络 t2i 兜底。关闭则退回旧逻辑（优先网络 t2i），不推荐。"
+  },
+  "request_timeout": {
+    "description": "API 请求超时（秒）",
+    "type": "int",
+    "default": 15
+  },
+  "cache_ttl_seconds": {
+    "description": "数据缓存时间（秒）",
+    "type": "int",
+    "default": 86400
+  },
+  "steam_api_key": {
+    "description": "Steam API Key（可选，用于获取比赛数据，申请地址：https://steamcommunity.com/dev/apikey）",
+    "type": "string",
+    "default": ""
+  },
+  "enable_llm_summary": {
+    "description": "是否由插件自己调用大模型生成赛后总结",
+    "type": "bool",
+    "default": true,
+    "hint": "开启后：插件自己按「天辉关键 / 夜魇关键 / 一句话总结」三点生成总结，渲染进图片底部的「综合分析」区块，完全不依赖主对话模型。关闭后：改用主对话模型本轮的回复文字作为总结 —— 但工具只让主模型「补充 1-3 句、不要复述数据」，这样写出来的总结往往只有定性判断、缺少 KDA/经济/经验明细，不建议关闭。"
+  },
+  "summary_provider_id": {
+    "description": "生成赛后总结的大模型",
+    "type": "string",
+    "default": "",
+    "_special": "select_provider",
+    "hint": "留空 = 使用当前会话正在聊天的那个模型。也可指定一个固定模型专门写总结。重要：**别选推理模型**。有些模型名字里带 flash 但其实是推理模型（如 deepseek/deepseek-v4-flash），它们会把输出预算全花在「思考」上，正文返回空字符串，总结就会静默退回成主对话模型的文字（日志会出现「只返回了思考、正文为空」）。推理模型的名字常带 R1 / reasoning / think，如 siliconflow/deepseek-ai/DeepSeek-R1-0528-Qwen3-8B。推荐 GLM/GLM-4-Flash-250414 —— 实测写三点总结约 10 秒、无思考输出、正文完整。"
+  },
+  "summary_timeout": {
+    "description": "生成总结的超时时间（秒）",
+    "type": "int",
+    "default": 180,
+    "hint": "超过这个时间还没拿到总结，就放弃插件生成、退回用主对话模型的回复文字。默认 180 秒：推理类模型写三点总结实测约 88 秒，超时给短了会直接失败。若按上面的建议使用非推理模型（约 10 秒出结果），可改小到 30 让失败回退更快。"
+  },
+  "summary_max_chars": {
+    "description": "总结最大字数，超出会被精简",
+    "type": "int",
+    "default": 500,
+    "hint": "总结最大字数。提示词已要求模型只点评每方最突出/最落后的 1-2 人、全文不超过此值；模型偶尔仍会写超，超出的部分会按栏目精简（优先保全「一句话总结」，先压缩天辉/夜魇两栏），而不是拦腰截断。建议 400-600：太短会讲不清「为什么突出」，太长又会退回人人一句、失去重点。"
+  },
+  "enable_replay_summary": {
+    "description": "赛后总结改用录像解析数据（仅具体某一局）",
+    "type": "bool",
+    "default": true,
+    "hint": "开启后（默认）：查询**具体某一局**时，插件向 OpenDota 申请录像解析，用解析出的团战、关键目标（推塔/肉山）、对线优劣、经济曲线拐点来写赛后总结 —— 能讲清「这场是怎么赢/输的」，而不只是复述 KDA。解析约需数分钟，因此先发一条「录像正在解析中」提示，解析完成后把对战数据与点评合成同一张卡片补发。关闭后：退回旧逻辑，直接把卡片文字喂给模型写总结（无需等待解析，但只有静态数字）。仅影响「具体某一局」；近期战绩/英雄/物品等其余查询不受影响。"
+  },
+  "replay_parse_timeout": {
+    "description": "录像解析等待时长上限（秒）",
+    "type": "int",
+    "default": 720,
+    "hint": "等待 OpenDota 录像解析完成的最长时间。OpenDota 官方说解析需数分钟，实测常见 5~10 分钟，默认 720 秒（12 分钟）留足余量。超时后放弃赛后点评，改为只补发一张对战数据卡片（用户至少能拿到数据）。仅在 enable_replay_summary 开启时生效。"
+  }
+}

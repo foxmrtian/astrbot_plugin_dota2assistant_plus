@@ -1,0 +1,750 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=860, initial-scale=1">
+<style>
+  :root{
+    --bg:#ffffff;
+    --panel:#f7f9fc;
+    --panel-2:#eef2f7;
+    --line:#e2e8f0;
+    --ink:#0f172a;
+    --ink-2:#1e293b;
+    --muted:#475569;
+    --faint:#64748b;
+    --accent:#1d4ed8;
+    --accent-2:#1e3a8a;
+    --accent-soft:#dbeafe;
+    --win:#15803d;
+    --lose:#b91c1c;
+    --gold:#1e3a8a;
+    --analysis-bg:#f7f9fc;
+    --analysis-line:#1d4ed8;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;padding:0;background:var(--bg)}
+  body{
+    color:var(--ink);
+    font-family:"MiSans","Noto Sans CJK SC","Source Han Sans SC","Microsoft YaHei",
+                "PingFang SC","Hiragino Sans GB","WenQuanYi Micro Hei",sans-serif;
+    font-size:17px;
+    line-height:1.65;
+    -webkit-font-smoothing:antialiased;
+  }
+  .card{
+    width:860px;
+    padding:26px 32px 32px;
+    background:var(--panel);
+    border:1px solid var(--line);
+    border-top:3px solid var(--accent);
+  }
+  #content{width:838px}
+  #content>*:first-child{margin-top:0}
+  #content>*:last-child{margin-bottom:0}
+
+  /* 分栏目标题统一深蓝色，正文/详情保持黑色 */
+  #content h1{
+    margin:0 0 14px;
+    padding-bottom:10px;
+    font-size:28px;
+    line-height:1.35;
+    font-weight:700;
+    color:var(--accent);
+    border-bottom:2px solid var(--panel-2);
+    letter-spacing:.01em;
+  }
+  #content h2{
+    margin:22px 0 10px;
+    font-size:20px;
+    font-weight:600;
+    color:var(--accent);
+    border-left:4px solid var(--accent);
+    padding-left:10px;
+  }
+  /* 玩家标题行：英雄头像 / 等级 / 玩家ID / KDA。
+     整行统一 24px（正文 17px 的约 1.4 倍）—— 比原先的 36px 收窄，
+     既不喧宾夺主，也保证长昵称不容易折行。整行同号是有意的：
+     曾试过「等级小号 + 昵称/KDA 大号」的行内混排，字号不齐会让基线看起来飘。 */
+  #content h3{
+    margin:18px 0 8px;
+    font-size:24px;
+    line-height:1.3;
+    font-weight:600;
+    color:var(--accent);
+  }
+  #content h4,#content h5,#content h6{
+    margin:14px 0 6px;
+    font-size:17px;
+    font-weight:600;
+    color:var(--muted);
+  }
+  #content p{margin:9px 0;color:var(--ink)}
+  #content strong{color:var(--accent);font-weight:700}
+  #content em{color:var(--accent-soft);font-style:normal;font-weight:600}
+
+  #content table{
+    width:100%;
+    border-collapse:collapse;
+    margin:13px 0 8px;
+    font-size:16px;
+    table-layout:auto;
+  }
+  #content th{
+    background:var(--panel-2);
+    color:var(--accent);
+    font-weight:600;
+    text-align:left;
+    padding:9px 12px;
+    border:1px solid var(--line);
+    white-space:nowrap;
+  }
+  #content td{
+    padding:8px 12px;
+    border:1px solid var(--line);
+    color:var(--ink);
+    vertical-align:top;
+  }
+  #content tbody tr:nth-child(even) td{background:#fafbfc}
+
+  #content ul,#content ol{margin:9px 0;padding-left:26px}
+  #content li{margin:5px 0;color:var(--ink)}
+  #content li::marker{color:var(--accent)}
+
+  #content code{
+    background:#f3f4f6;
+    padding:2px 6px;
+    border-radius:4px;
+    font-size:15px;
+    color:var(--accent-soft);
+    font-family:"JetBrains Mono","DejaVu Sans Mono",monospace;
+  }
+  #content pre{
+    background:#f7f8fa;
+    border:1px solid var(--line);
+    border-radius:6px;
+    padding:12px 14px;
+    overflow:hidden;
+    white-space:pre-wrap;
+    word-break:break-word;
+  }
+  #content pre code{background:none;padding:0}
+  #content blockquote{
+    margin:10px 0;
+    padding:6px 14px;
+    border-left:3px solid var(--accent);
+    background:#f2f7ff;
+    color:var(--ink);
+  }
+  #content hr{
+    border:0;
+    border-top:1px solid var(--line);
+    margin:18px 0;
+  }
+
+  /* 玩家区块：左侧英雄立绘竖跨三行，右侧依次是标题行、数据行、装备行。
+     布局脚本会把每个 ### 玩家段落及其后两行包进 .player-block，
+     并把立绘从 h3 里提出来作为独立的第一列（见文件末尾 groupPlayerBlocks）。
+     用 grid 而不是 float：float 的高度取决于内容，行数一变就会串到下一名玩家；
+     grid 用 grid-row:1/span 3 把立绘**精确**钉在三行上，标题折行也不受影响。 */
+  #content .player-block{
+    display:grid;
+    grid-template-columns:auto minmax(0,1fr);
+    column-gap:12px;
+    row-gap:2px;
+    align-items:start;
+    margin:16px 0;
+  }
+  #content .player-block h3{margin:0}
+  #content .player-block p{margin:0}
+  #content .player-block p:has(img){margin-top:4px}
+  /* 立绘：占据左列，竖跨三行。235x272 的竖版立绘按 132px 高计算约 114px 宽，
+     右侧仍有约 714px 放数据，标题在 24px 下能容纳更长的昵称。 */
+  #content .player-block img.hero-portrait{
+    grid-column:1;
+    grid-row:1 / span 3;
+    height:132px;
+    width:auto;
+    margin:0;
+    align-self:start;
+    background:var(--panel-2);
+    border:1px solid var(--line);
+    border-radius:6px;
+  }
+
+  /* 装备图标：Valve 官方 CDN 的游戏内装备图（88x64 透明底 PNG）。
+     图标加载失败时浏览器会显示 alt 文本（中文物品名），因此这里给 img
+     设定与 alt 文本相称的尺寸和边框，退化后依然是一块可读的排版。 */
+  #content img{
+    height:34px;
+    width:auto;
+    margin:0 3px 0 0;
+    vertical-align:middle;
+    background:var(--panel-2);
+    border:1px solid var(--line);
+    border-radius:4px;
+    object-fit:contain;
+  }
+  /* 同一行的装备图标不要在行内被拆散 */
+  #content p:has(img){line-height:1.9}
+  /* 玩家区块内的装备图标略小：立绘 132px 高，34px 的图标已接近其 1/4，
+     再大就会把装备行挤成两行，破坏与立绘的三行对齐。 */
+  #content .player-block p img{height:30px}
+  /* 立绘缺失时（浏览器拿不到图）退回英雄名文本，别留一个空框 */
+  #content .player-block img.hero-portrait[data-broken]{
+    display:none;
+  }
+  #content a{color:var(--accent);text-decoration:none}
+
+  /* 综合分析：固定放在卡片最下方，与上方数据表格用分隔线隔开，绝不重叠 */
+  #content>.analysis-heading{
+    margin-top:26px;
+    padding:10px 14px;
+    color:var(--accent);
+    background:var(--analysis-bg);
+    border-left:4px solid var(--accent);
+    border-top:1px solid var(--analysis-line);
+    border-right:1px solid var(--analysis-line);
+    border-bottom:1px solid var(--analysis-line);
+    border-radius:0 8px 0 0;
+  }
+  /* 总结正文放大到分栏目标题尺寸（20px）。原先继承 body 的 17px，
+     用户反馈偏小；放大后可读性更好，图片相应变长是可以接受的代价。 */
+  #content>.analysis-body{
+    color:var(--ink);
+    background:var(--analysis-bg);
+    border-left:4px solid var(--accent);
+    border-right:1px solid var(--analysis-line);
+    margin:0;
+    padding:9px 14px;
+    font-size:20px;
+    line-height:1.72;
+  }
+  /* 综合分析里的英雄名加粗、但不放大。
+     曾把英雄名同时加粗并放大一号（1.1em），同一段里字号忽大忽小，连读时
+     反而不好读；现在只保留加粗（深蓝 + 700），字号与正文一致，
+     既不丢重点，也不会让行距看起来参差。 */
+  #content>.analysis-body strong{
+    color:var(--accent);
+    font-weight:700;
+    font-size:inherit;
+  }
+  /* 综合分析内的三个小栏目（天辉方的表现 / 夜魇方的表现 / 一句话总结）。
+
+     它们渲染成 h3，语义上却是总结的次级标题，因此不能沿用 #content h3 的
+     24px：那会让小标题比它统领的正文（20px）还大。这里压到 19px，
+     与正文拉开层级但不喧宾夺主。
+
+     注意这三个 h3 同样带 .analysis-body —— 见卡片末尾的 markAnalysisBlock，
+     它给 h2 之后的所有兄弟节点都加上该类。这样整块底纹才是连续的一条；
+     代价是要把该类的段落装饰（上下 padding、左右边框）在这里改掉，
+     否则小标题自己会多出一圈内边距、把底纹切成不连续的两段。
+     间距用 padding-top 而不是 margin-top：margin 会在底纹里露出白底。 */
+  #content>h3.analysis-body{
+    font-size:19px;
+    font-weight:700;
+    line-height:1.5;
+    color:var(--accent);
+    margin:0;
+    padding:15px 14px 3px;
+  }
+  /* 紧跟在「综合分析」标题后的第一个小栏目，上间距由标题块自己提供 */
+  #content>.analysis-heading+h3.analysis-body{
+    padding-top:6px;
+  }
+
+  /* ── 战报卡新结构（横幅 / 分队条 / 玩家核心行 / 两行指标条）── */
+
+  /* 顶部横幅：MVP 信息在左，立绘在右，比分压在立绘上 */
+  #content .match-banner{
+    position:relative;
+    height:190px;
+    border-radius:14px;
+    background:var(--panel);
+    overflow:hidden;
+    margin:18px 0 24px;
+    display:grid;
+    grid-template-columns:1fr 338px;
+  }
+  #content .match-banner .banner-art{
+    grid-column:2;
+    grid-row:1;
+    height:100%;
+    width:100%;
+    background-size:cover;
+    background-position:25% 0;
+    opacity:0.92;
+  }
+  #content .match-banner .banner-art::before{
+    content:"";
+    position:absolute;
+    inset:0;
+    background:linear-gradient(to right, var(--panel) 0%, rgba(255,255,255,0) 55%);
+  }
+  #content .match-banner .banner-info{
+    grid-column:1 / span 2;
+    grid-row:1;
+    position:relative;
+    z-index:1;
+    padding:14px 22px 18px;
+    display:flex;
+    flex-direction:column;
+    justify-content:flex-end;
+    align-items:flex-start;
+  }
+  #content .match-banner .banner-meta{
+    position:absolute;
+    top:14px;
+    left:22px;
+    font-size:11px;
+    color:var(--faint);
+  }
+  #content .match-banner .banner-eyebrow{
+    font-size:13px;
+    font-weight:700;
+    color:var(--accent);
+    letter-spacing:0.12em;
+  }
+  #content .match-banner .banner-name{
+    font-size:34px;
+    font-weight:700;
+    color:var(--gold);
+    line-height:1.1;
+    margin:2px 0 4px;
+  }
+  #content .match-banner .banner-hero{
+    font-size:14px;
+    color:var(--muted);
+  }
+  #content .match-banner .banner-kda{
+    font-size:22px;
+    font-weight:700;
+    margin-top:4px;
+  }
+  #content .match-banner .banner-kda .k{color:var(--win)}
+  #content .match-banner .banner-kda .d{color:var(--lose)}
+  #content .match-banner .banner-kda .a{color:var(--accent)}
+  #content .match-banner .banner-score{
+    position:absolute;
+    right:18px;
+    bottom:20px;
+    background:rgba(255,255,255,0.96);
+    border-radius:10px;
+    padding:6px 14px;
+    display:flex;
+    align-items:baseline;
+    gap:8px;
+    font-size:14px;
+    color:var(--muted);
+    z-index:2;
+  }
+  #content .match-banner .banner-score .score-num{
+    font-size:34px;
+    font-weight:700;
+    line-height:1;
+  }
+  #content .match-banner .banner-score .score-num.win{color:var(--win)}
+  #content .match-banner .banner-score .score-num.lose{color:var(--muted)}
+  #content .match-banner .banner-score .sep{font-size:22px;margin:0 2px}
+
+  /* 分队条 */
+  #content .team-band{
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    background:var(--panel-2);
+    border-radius:8px;
+    padding:9px 14px;
+    margin:16px 0 10px;
+    border-left:4px solid var(--line);
+  }
+  #content .team-band.team-win{border-left-color:var(--win)}
+  #content .team-band.team-lose{border-left-color:var(--lose)}
+  #content .team-band .team-name{font-size:16px;font-weight:600;color:var(--ink)}
+  #content .team-band .team-result{font-size:12px;margin-left:8px;font-weight:600}
+  #content .team-band .team-meta{font-size:12px;color:var(--muted)}
+
+  /* 玩家核心行：昵称在左，GPM/XPM 靠右 */
+  #content .player-block h3{
+    margin:0;
+    display:flex;
+    align-items:baseline;
+    gap:8px;
+    flex-wrap:wrap;
+  }
+  #content .player-block h3 .level{font-size:12px;color:var(--muted)}
+  #content .player-block h3 .kda{font-weight:700}
+  #content .player-block h3 .kda .k{color:var(--win)}
+  #content .player-block h3 .kda .d{color:var(--lose)}
+  #content .player-block h3 .kda .a{color:var(--accent)}
+  #content .player-block h3 .core-metrics{
+    margin-left:auto;
+    display:inline-flex;
+    gap:16px;
+    font-size:19px;
+    color:var(--ink-2);
+    font-weight:500;
+  }
+
+  /* 指标条：上行数值 / 下行标签（8 列：GPM/XPM/金钱/补刀/伤害/参战/推塔/治疗），每列居中 */
+  #content .metric-strip{
+    display:grid;
+    grid-template-columns:repeat(8, 1fr);
+    gap:4px;
+    margin:8px 0;
+  }
+  #content .metric-strip .metric{display:flex;flex-direction:column;align-items:center;text-align:center}
+  #content .metric-strip .metric-value{font-size:21px;font-weight:500;color:var(--ink);line-height:1.1}
+  #content .metric-strip .metric-label{font-size:11px;color:var(--muted);margin-top:2px}
+
+  #content>.analysis-body:last-child{
+    border-bottom:1px solid var(--analysis-line);
+    border-radius:0 0 8px 0;
+    padding-bottom:12px;
+  }
+</style>
+</head>
+<body>
+  <div class="card">
+    <article id="content"></article>
+  </div>
+  <textarea id="markdown-source" hidden>{{ text | safe }}</textarea>
+  <script>
+    /* marked inlined */
+/**
+ * marked v15.0.12 - a markdown parser
+ * Copyright (c) 2011-2025, Christopher Jeffrey. (MIT Licensed)
+ * https://github.com/markedjs/marked
+ */
+
+/**
+ * DO NOT EDIT THIS FILE
+ * The code in this file is generated from files in ./src/
+ */
+(function(g,f){if(typeof exports=="object"&&typeof module<"u"){module.exports=f()}else if("function"==typeof define && define.amd){define("marked",f)}else {g["marked"]=f()}}(typeof globalThis < "u" ? globalThis : typeof self < "u" ? self : this,function(){var exports={};var __exports=exports;var module={exports};
+"use strict";var H=Object.defineProperty;var be=Object.getOwnPropertyDescriptor;var Te=Object.getOwnPropertyNames;var we=Object.prototype.hasOwnProperty;var ye=(l,e)=>{for(var t in e)H(l,t,{get:e[t],enumerable:!0})},Re=(l,e,t,n)=>{if(e&&typeof e=="object"||typeof e=="function")for(let s of Te(e))!we.call(l,s)&&s!==t&&H(l,s,{get:()=>e[s],enumerable:!(n=be(e,s))||n.enumerable});return l};var Se=l=>Re(H({},"__esModule",{value:!0}),l);var kt={};ye(kt,{Hooks:()=>L,Lexer:()=>x,Marked:()=>E,Parser:()=>b,Renderer:()=>$,TextRenderer:()=>_,Tokenizer:()=>S,defaults:()=>w,getDefaults:()=>z,lexer:()=>ht,marked:()=>k,options:()=>it,parse:()=>pt,parseInline:()=>ct,parser:()=>ut,setOptions:()=>ot,use:()=>lt,walkTokens:()=>at});module.exports=Se(kt);function z(){return{async:!1,breaks:!1,extensions:null,gfm:!0,hooks:null,pedantic:!1,renderer:null,silent:!1,tokenizer:null,walkTokens:null}}var w=z();function N(l){w=l}var I={exec:()=>null};function h(l,e=""){let t=typeof l=="string"?l:l.source,n={replace:(s,i)=>{let r=typeof i=="string"?i:i.source;return r=r.replace(m.caret,"$1"),t=t.replace(s,r),n},getRegex:()=>new RegExp(t,e)};return n}var m={codeRemoveIndent:/^(?: {1,4}| {0,3}\t)/gm,outputLinkReplace:/\\([\[\]])/g,indentCodeCompensation:/^(\s+)(?:```)/,beginningSpace:/^\s+/,endingHash:/#$/,startingSpaceChar:/^ /,endingSpaceChar:/ $/,nonSpaceChar:/[^ ]/,newLineCharGlobal:/\n/g,tabCharGlobal:/\t/g,multipleSpaceGlobal:/\s+/g,blankLine:/^[ \t]*$/,doubleBlankLine:/\n[ \t]*\n[ \t]*$/,blockquoteStart:/^ {0,3}>/,blockquoteSetextReplace:/\n {0,3}((?:=+|-+) *)(?=\n|$)/g,blockquoteSetextReplace2:/^ {0,3}>[ \t]?/gm,listReplaceTabs:/^\t+/,listReplaceNesting:/^ {1,4}(?=( {4})*[^ ])/g,listIsTask:/^\[[ xX]\] /,listReplaceTask:/^\[[ xX]\] +/,anyLine:/\n.*\n/,hrefBrackets:/^<(.*)>$/,tableDelimiter:/[:|]/,tableAlignChars:/^\||\| *$/g,tableRowBlankLine:/\n[ \t]*$/,tableAlignRight:/^ *-+: *$/,tableAlignCenter:/^ *:-+: *$/,tableAlignLeft:/^ *:-+ *$/,startATag:/^<a /i,endATag:/^<\/a>/i,startPreScriptTag:/^<(pre|code|kbd|script)(\s|>)/i,endPreScriptTag:/^<\/(pre|code|kbd|script)(\s|>)/i,startAngleBracket:/^</,endAngleBracket:/>$/,pedanticHrefTitle:/^([^'"]*[^\s])\s+(['"])(.*)\2/,unicodeAlphaNumeric:/[\p{L}\p{N}]/u,escapeTest:/[&<>"']/,escapeReplace:/[&<>"']/g,escapeTestNoEncode:/[<>"']|&(?!(#\d{1,7}|#[Xx][a-fA-F0-9]{1,6}|\w+);)/,escapeReplaceNoEncode:/[<>"']|&(?!(#\d{1,7}|#[Xx][a-fA-F0-9]{1,6}|\w+);)/g,unescapeTest:/&(#(?:\d+)|(?:#x[0-9A-Fa-f]+)|(?:\w+));?/ig,caret:/(^|[^\[])\^/g,percentDecode:/%25/g,findPipe:/\|/g,splitPipe:/ \|/,slashPipe:/\\\|/g,carriageReturn:/\r\n|\r/g,spaceLine:/^ +$/gm,notSpaceStart:/^\S*/,endingNewline:/\n$/,listItemRegex:l=>new RegExp(`^( {0,3}${l})((?:[	 ][^\\n]*)?(?:\\n|$))`),nextBulletRegex:l=>new RegExp(`^ {0,${Math.min(3,l-1)}}(?:[*+-]|\\d{1,9}[.)])((?:[ 	][^\\n]*)?(?:\\n|$))`),hrRegex:l=>new RegExp(`^ {0,${Math.min(3,l-1)}}((?:- *){3,}|(?:_ *){3,}|(?:\\* *){3,})(?:\\n+|$)`),fencesBeginRegex:l=>new RegExp(`^ {0,${Math.min(3,l-1)}}(?:\`\`\`|~~~)`),headingBeginRegex:l=>new RegExp(`^ {0,${Math.min(3,l-1)}}#`),htmlBeginRegex:l=>new RegExp(`^ {0,${Math.min(3,l-1)}}<(?:[a-z].*>|!--)`,"i")},$e=/^(?:[ \t]*(?:\n|$))+/,_e=/^((?: {4}| {0,3}\t)[^\n]+(?:\n(?:[ \t]*(?:\n|$))*)?)+/,Le=/^ {0,3}(`{3,}(?=[^`\n]*(?:\n|$))|~{3,})([^\n]*)(?:\n|$)(?:|([\s\S]*?)(?:\n|$))(?: {0,3}\1[~`]* *(?=\n|$)|$)/,O=/^ {0,3}((?:-[\t ]*){3,}|(?:_[ \t]*){3,}|(?:\*[ \t]*){3,})(?:\n+|$)/,ze=/^ {0,3}(#{1,6})(?=\s|$)(.*)(?:\n+|$)/,F=/(?:[*+-]|\d{1,9}[.)])/,ie=/^(?!bull |blockCode|fences|blockquote|heading|html|table)((?:.|\n(?!\s*?\n|bull |blockCode|fences|blockquote|heading|html|table))+?)\n {0,3}(=+|-+) *(?:\n+|$)/,oe=h(ie).replace(/bull/g,F).replace(/blockCode/g,/(?: {4}| {0,3}\t)/).replace(/fences/g,/ {0,3}(?:`{3,}|~{3,})/).replace(/blockquote/g,/ {0,3}>/).replace(/heading/g,/ {0,3}#{1,6}/).replace(/html/g,/ {0,3}<[^\n>]+>\n/).replace(/\|table/g,"").getRegex(),Me=h(ie).replace(/bull/g,F).replace(/blockCode/g,/(?: {4}| {0,3}\t)/).replace(/fences/g,/ {0,3}(?:`{3,}|~{3,})/).replace(/blockquote/g,/ {0,3}>/).replace(/heading/g,/ {0,3}#{1,6}/).replace(/html/g,/ {0,3}<[^\n>]+>\n/).replace(/table/g,/ {0,3}\|?(?:[:\- ]*\|)+[\:\- ]*\n/).getRegex(),Q=/^([^\n]+(?:\n(?!hr|heading|lheading|blockquote|fences|list|html|table| +\n)[^\n]+)*)/,Pe=/^[^\n]+/,U=/(?!\s*\])(?:\\.|[^\[\]\\])+/,Ae=h(/^ {0,3}\[(label)\]: *(?:\n[ \t]*)?([^<\s][^\s]*|<.*?>)(?:(?: +(?:\n[ \t]*)?| *\n[ \t]*)(title))? *(?:\n+|$)/).replace("label",U).replace("title",/(?:"(?:\\"?|[^"\\])*"|'[^'\n]*(?:\n[^'\n]+)*\n?'|\([^()]*\))/).getRegex(),Ee=h(/^( {0,3}bull)([ \t][^\n]+?)?(?:\n|$)/).replace(/bull/g,F).getRegex(),v="address|article|aside|base|basefont|blockquote|body|caption|center|col|colgroup|dd|details|dialog|dir|div|dl|dt|fieldset|figcaption|figure|footer|form|frame|frameset|h[1-6]|head|header|hr|html|iframe|legend|li|link|main|menu|menuitem|meta|nav|noframes|ol|optgroup|option|p|param|search|section|summary|table|tbody|td|tfoot|th|thead|title|tr|track|ul",K=/<!--(?:-?>|[\s\S]*?(?:-->|$))/,Ce=h("^ {0,3}(?:<(script|pre|style|textarea)[\\s>][\\s\\S]*?(?:</\\1>[^\\n]*\\n+|$)|comment[^\\n]*(\\n+|$)|<\\?[\\s\\S]*?(?:\\?>\\n*|$)|<![A-Z][\\s\\S]*?(?:>\\n*|$)|<!\\[CDATA\\[[\\s\\S]*?(?:\\]\\]>\\n*|$)|</?(tag)(?: +|\\n|/?>)[\\s\\S]*?(?:(?:\\n[ 	]*)+\\n|$)|<(?!script|pre|style|textarea)([a-z][\\w-]*)(?:attribute)*? */?>(?=[ \\t]*(?:\\n|$))[\\s\\S]*?(?:(?:\\n[ 	]*)+\\n|$)|</(?!script|pre|style|textarea)[a-z][\\w-]*\\s*>(?=[ \\t]*(?:\\n|$))[\\s\\S]*?(?:(?:\\n[ 	]*)+\\n|$))","i").replace("comment",K).replace("tag",v).replace("attribute",/ +[a-zA-Z:_][\w.:-]*(?: *= *"[^"\n]*"| *= *'[^'\n]*'| *= *[^\s"'=<>`]+)?/).getRegex(),le=h(Q).replace("hr",O).replace("heading"," {0,3}#{1,6}(?:\\s|$)").replace("|lheading","").replace("|table","").replace("blockquote"," {0,3}>").replace("fences"," {0,3}(?:`{3,}(?=[^`\\n]*\\n)|~{3,})[^\\n]*\\n").replace("list"," {0,3}(?:[*+-]|1[.)]) ").replace("html","</?(?:tag)(?: +|\\n|/?>)|<(?:script|pre|style|textarea|!--)").replace("tag",v).getRegex(),Ie=h(/^( {0,3}> ?(paragraph|[^\n]*)(?:\n|$))+/).replace("paragraph",le).getRegex(),X={blockquote:Ie,code:_e,def:Ae,fences:Le,heading:ze,hr:O,html:Ce,lheading:oe,list:Ee,newline:$e,paragraph:le,table:I,text:Pe},re=h("^ *([^\\n ].*)\\n {0,3}((?:\\| *)?:?-+:? *(?:\\| *:?-+:? *)*(?:\\| *)?)(?:\\n((?:(?! *\\n|hr|heading|blockquote|code|fences|list|html).*(?:\\n|$))*)\\n*|$)").replace("hr",O).replace("heading"," {0,3}#{1,6}(?:\\s|$)").replace("blockquote"," {0,3}>").replace("code","(?: {4}| {0,3}	)[^\\n]").replace("fences"," {0,3}(?:`{3,}(?=[^`\\n]*\\n)|~{3,})[^\\n]*\\n").replace("list"," {0,3}(?:[*+-]|1[.)]) ").replace("html","</?(?:tag)(?: +|\\n|/?>)|<(?:script|pre|style|textarea|!--)").replace("tag",v).getRegex(),Oe={...X,lheading:Me,table:re,paragraph:h(Q).replace("hr",O).replace("heading"," {0,3}#{1,6}(?:\\s|$)").replace("|lheading","").replace("table",re).replace("blockquote"," {0,3}>").replace("fences"," {0,3}(?:`{3,}(?=[^`\\n]*\\n)|~{3,})[^\\n]*\\n").replace("list"," {0,3}(?:[*+-]|1[.)]) ").replace("html","</?(?:tag)(?: +|\\n|/?>)|<(?:script|pre|style|textarea|!--)").replace("tag",v).getRegex()},Be={...X,html:h(`^ *(?:comment *(?:\\n|\\s*$)|<(tag)[\\s\\S]+?</\\1> *(?:\\n{2,}|\\s*$)|<tag(?:"[^"]*"|'[^']*'|\\s[^'"/>\\s]*)*?/?> *(?:\\n{2,}|\\s*$))`).replace("comment",K).replace(/tag/g,"(?!(?:a|em|strong|small|s|cite|q|dfn|abbr|data|time|code|var|samp|kbd|sub|sup|i|b|u|mark|ruby|rt|rp|bdi|bdo|span|br|wbr|ins|del|img)\\b)\\w+(?!:|[^\\w\\s@]*@)\\b").getRegex(),def:/^ *\[([^\]]+)\]: *<?([^\s>]+)>?(?: +(["(][^\n]+[")]))? *(?:\n+|$)/,heading:/^(#{1,6})(.*)(?:\n+|$)/,fences:I,lheading:/^(.+?)\n {0,3}(=+|-+) *(?:\n+|$)/,paragraph:h(Q).replace("hr",O).replace("heading",` *#{1,6} *[^
+]`).replace("lheading",oe).replace("|table","").replace("blockquote"," {0,3}>").replace("|fences","").replace("|list","").replace("|html","").replace("|tag","").getRegex()},qe=/^\\([!"#$%&'()*+,\-./:;<=>?@\[\]\\^_`{|}~])/,ve=/^(`+)([^`]|[^`][\s\S]*?[^`])\1(?!`)/,ae=/^( {2,}|\\)\n(?!\s*$)/,De=/^(`+|[^`])(?:(?= {2,}\n)|[\s\S]*?(?:(?=[\\<!\[`*_]|\b_|$)|[^ ](?= {2,}\n)))/,D=/[\p{P}\p{S}]/u,W=/[\s\p{P}\p{S}]/u,ce=/[^\s\p{P}\p{S}]/u,Ze=h(/^((?![*_])punctSpace)/,"u").replace(/punctSpace/g,W).getRegex(),pe=/(?!~)[\p{P}\p{S}]/u,Ge=/(?!~)[\s\p{P}\p{S}]/u,He=/(?:[^\s\p{P}\p{S}]|~)/u,Ne=/\[[^[\]]*?\]\((?:\\.|[^\\\(\)]|\((?:\\.|[^\\\(\)])*\))*\)|`[^`]*?`|<[^<>]*?>/g,ue=/^(?:\*+(?:((?!\*)punct)|[^\s*]))|^_+(?:((?!_)punct)|([^\s_]))/,je=h(ue,"u").replace(/punct/g,D).getRegex(),Fe=h(ue,"u").replace(/punct/g,pe).getRegex(),he="^[^_*]*?__[^_*]*?\\*[^_*]*?(?=__)|[^*]+(?=[^*])|(?!\\*)punct(\\*+)(?=[\\s]|$)|notPunctSpace(\\*+)(?!\\*)(?=punctSpace|$)|(?!\\*)punctSpace(\\*+)(?=notPunctSpace)|[\\s](\\*+)(?!\\*)(?=punct)|(?!\\*)punct(\\*+)(?!\\*)(?=punct)|notPunctSpace(\\*+)(?=notPunctSpace)",Qe=h(he,"gu").replace(/notPunctSpace/g,ce).replace(/punctSpace/g,W).replace(/punct/g,D).getRegex(),Ue=h(he,"gu").replace(/notPunctSpace/g,He).replace(/punctSpace/g,Ge).replace(/punct/g,pe).getRegex(),Ke=h("^[^_*]*?\\*\\*[^_*]*?_[^_*]*?(?=\\*\\*)|[^_]+(?=[^_])|(?!_)punct(_+)(?=[\\s]|$)|notPunctSpace(_+)(?!_)(?=punctSpace|$)|(?!_)punctSpace(_+)(?=notPunctSpace)|[\\s](_+)(?!_)(?=punct)|(?!_)punct(_+)(?!_)(?=punct)","gu").replace(/notPunctSpace/g,ce).replace(/punctSpace/g,W).replace(/punct/g,D).getRegex(),Xe=h(/\\(punct)/,"gu").replace(/punct/g,D).getRegex(),We=h(/^<(scheme:[^\s\x00-\x1f<>]*|email)>/).replace("scheme",/[a-zA-Z][a-zA-Z0-9+.-]{1,31}/).replace("email",/[a-zA-Z0-9.!#$%&'*+/=?^_`{|}~-]+(@)[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(?:\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)+(?![-_])/).getRegex(),Je=h(K).replace("(?:-->|$)","-->").getRegex(),Ve=h("^comment|^</[a-zA-Z][\\w:-]*\\s*>|^<[a-zA-Z][\\w-]*(?:attribute)*?\\s*/?>|^<\\?[\\s\\S]*?\\?>|^<![a-zA-Z]+\\s[\\s\\S]*?>|^<!\\[CDATA\\[[\\s\\S]*?\\]\\]>").replace("comment",Je).replace("attribute",/\s+[a-zA-Z:_][\w.:-]*(?:\s*=\s*"[^"]*"|\s*=\s*'[^']*'|\s*=\s*[^\s"'=<>`]+)?/).getRegex(),q=/(?:\[(?:\\.|[^\[\]\\])*\]|\\.|`[^`]*`|[^\[\]\\`])*?/,Ye=h(/^!?\[(label)\]\(\s*(href)(?:(?:[ \t]*(?:\n[ \t]*)?)(title))?\s*\)/).replace("label",q).replace("href",/<(?:\\.|[^\n<>\\])+>|[^ \t\n\x00-\x1f]*/).replace("title",/"(?:\\"?|[^"\\])*"|'(?:\\'?|[^'\\])*'|\((?:\\\)?|[^)\\])*\)/).getRegex(),ke=h(/^!?\[(label)\]\[(ref)\]/).replace("label",q).replace("ref",U).getRegex(),ge=h(/^!?\[(ref)\](?:\[\])?/).replace("ref",U).getRegex(),et=h("reflink|nolink(?!\\()","g").replace("reflink",ke).replace("nolink",ge).getRegex(),J={_backpedal:I,anyPunctuation:Xe,autolink:We,blockSkip:Ne,br:ae,code:ve,del:I,emStrongLDelim:je,emStrongRDelimAst:Qe,emStrongRDelimUnd:Ke,escape:qe,link:Ye,nolink:ge,punctuation:Ze,reflink:ke,reflinkSearch:et,tag:Ve,text:De,url:I},tt={...J,link:h(/^!?\[(label)\]\((.*?)\)/).replace("label",q).getRegex(),reflink:h(/^!?\[(label)\]\s*\[([^\]]*)\]/).replace("label",q).getRegex()},j={...J,emStrongRDelimAst:Ue,emStrongLDelim:Fe,url:h(/^((?:ftp|https?):\/\/|www\.)(?:[a-zA-Z0-9\-]+\.?)+[^\s<]*|^email/,"i").replace("email",/[A-Za-z0-9._+-]+(@)[a-zA-Z0-9-_]+(?:\.[a-zA-Z0-9-_]*[a-zA-Z0-9])+(?![-_])/).getRegex(),_backpedal:/(?:[^?!.,:;*_'"~()&]+|\([^)]*\)|&(?![a-zA-Z0-9]+;$)|[?!.,:;*_'"~)]+(?!$))+/,del:/^(~~?)(?=[^\s~])((?:\\.|[^\\])*?(?:\\.|[^\s~\\]))\1(?=[^~]|$)/,text:/^([`~]+|[^`~])(?:(?= {2,}\n)|(?=[a-zA-Z0-9.!#$%&'*+\/=?_`{\|}~-]+@)|[\s\S]*?(?:(?=[\\<!\[`*~_]|\b_|https?:\/\/|ftp:\/\/|www\.|$)|[^ ](?= {2,}\n)|[^a-zA-Z0-9.!#$%&'*+\/=?_`{\|}~-](?=[a-zA-Z0-9.!#$%&'*+\/=?_`{\|}~-]+@)))/},nt={...j,br:h(ae).replace("{2,}","*").getRegex(),text:h(j.text).replace("\\b_","\\b_| {2,}\\n").replace(/\{2,\}/g,"*").getRegex()},B={normal:X,gfm:Oe,pedantic:Be},P={normal:J,gfm:j,breaks:nt,pedantic:tt};var st={"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"},fe=l=>st[l];function R(l,e){if(e){if(m.escapeTest.test(l))return l.replace(m.escapeReplace,fe)}else if(m.escapeTestNoEncode.test(l))return l.replace(m.escapeReplaceNoEncode,fe);return l}function V(l){try{l=encodeURI(l).replace(m.percentDecode,"%")}catch{return null}return l}function Y(l,e){let t=l.replace(m.findPipe,(i,r,o)=>{let a=!1,c=r;for(;--c>=0&&o[c]==="\\";)a=!a;return a?"|":" |"}),n=t.split(m.splitPipe),s=0;if(n[0].trim()||n.shift(),n.length>0&&!n.at(-1)?.trim()&&n.pop(),e)if(n.length>e)n.splice(e);else for(;n.length<e;)n.push("");for(;s<n.length;s++)n[s]=n[s].trim().replace(m.slashPipe,"|");return n}function A(l,e,t){let n=l.length;if(n===0)return"";let s=0;for(;s<n;){let i=l.charAt(n-s-1);if(i===e&&!t)s++;else if(i!==e&&t)s++;else break}return l.slice(0,n-s)}function de(l,e){if(l.indexOf(e[1])===-1)return-1;let t=0;for(let n=0;n<l.length;n++)if(l[n]==="\\")n++;else if(l[n]===e[0])t++;else if(l[n]===e[1]&&(t--,t<0))return n;return t>0?-2:-1}function me(l,e,t,n,s){let i=e.href,r=e.title||null,o=l[1].replace(s.other.outputLinkReplace,"$1");n.state.inLink=!0;let a={type:l[0].charAt(0)==="!"?"image":"link",raw:t,href:i,title:r,text:o,tokens:n.inlineTokens(o)};return n.state.inLink=!1,a}function rt(l,e,t){let n=l.match(t.other.indentCodeCompensation);if(n===null)return e;let s=n[1];return e.split(`
+`).map(i=>{let r=i.match(t.other.beginningSpace);if(r===null)return i;let[o]=r;return o.length>=s.length?i.slice(s.length):i}).join(`
+`)}var S=class{options;rules;lexer;constructor(e){this.options=e||w}space(e){let t=this.rules.block.newline.exec(e);if(t&&t[0].length>0)return{type:"space",raw:t[0]}}code(e){let t=this.rules.block.code.exec(e);if(t){let n=t[0].replace(this.rules.other.codeRemoveIndent,"");return{type:"code",raw:t[0],codeBlockStyle:"indented",text:this.options.pedantic?n:A(n,`
+`)}}}fences(e){let t=this.rules.block.fences.exec(e);if(t){let n=t[0],s=rt(n,t[3]||"",this.rules);return{type:"code",raw:n,lang:t[2]?t[2].trim().replace(this.rules.inline.anyPunctuation,"$1"):t[2],text:s}}}heading(e){let t=this.rules.block.heading.exec(e);if(t){let n=t[2].trim();if(this.rules.other.endingHash.test(n)){let s=A(n,"#");(this.options.pedantic||!s||this.rules.other.endingSpaceChar.test(s))&&(n=s.trim())}return{type:"heading",raw:t[0],depth:t[1].length,text:n,tokens:this.lexer.inline(n)}}}hr(e){let t=this.rules.block.hr.exec(e);if(t)return{type:"hr",raw:A(t[0],`
+`)}}blockquote(e){let t=this.rules.block.blockquote.exec(e);if(t){let n=A(t[0],`
+`).split(`
+`),s="",i="",r=[];for(;n.length>0;){let o=!1,a=[],c;for(c=0;c<n.length;c++)if(this.rules.other.blockquoteStart.test(n[c]))a.push(n[c]),o=!0;else if(!o)a.push(n[c]);else break;n=n.slice(c);let p=a.join(`
+`),u=p.replace(this.rules.other.blockquoteSetextReplace,`
+    $1`).replace(this.rules.other.blockquoteSetextReplace2,"");s=s?`${s}
+${p}`:p,i=i?`${i}
+${u}`:u;let d=this.lexer.state.top;if(this.lexer.state.top=!0,this.lexer.blockTokens(u,r,!0),this.lexer.state.top=d,n.length===0)break;let g=r.at(-1);if(g?.type==="code")break;if(g?.type==="blockquote"){let T=g,f=T.raw+`
+`+n.join(`
+`),y=this.blockquote(f);r[r.length-1]=y,s=s.substring(0,s.length-T.raw.length)+y.raw,i=i.substring(0,i.length-T.text.length)+y.text;break}else if(g?.type==="list"){let T=g,f=T.raw+`
+`+n.join(`
+`),y=this.list(f);r[r.length-1]=y,s=s.substring(0,s.length-g.raw.length)+y.raw,i=i.substring(0,i.length-T.raw.length)+y.raw,n=f.substring(r.at(-1).raw.length).split(`
+`);continue}}return{type:"blockquote",raw:s,tokens:r,text:i}}}list(e){let t=this.rules.block.list.exec(e);if(t){let n=t[1].trim(),s=n.length>1,i={type:"list",raw:"",ordered:s,start:s?+n.slice(0,-1):"",loose:!1,items:[]};n=s?`\\d{1,9}\\${n.slice(-1)}`:`\\${n}`,this.options.pedantic&&(n=s?n:"[*+-]");let r=this.rules.other.listItemRegex(n),o=!1;for(;e;){let c=!1,p="",u="";if(!(t=r.exec(e))||this.rules.block.hr.test(e))break;p=t[0],e=e.substring(p.length);let d=t[2].split(`
+`,1)[0].replace(this.rules.other.listReplaceTabs,Z=>" ".repeat(3*Z.length)),g=e.split(`
+`,1)[0],T=!d.trim(),f=0;if(this.options.pedantic?(f=2,u=d.trimStart()):T?f=t[1].length+1:(f=t[2].search(this.rules.other.nonSpaceChar),f=f>4?1:f,u=d.slice(f),f+=t[1].length),T&&this.rules.other.blankLine.test(g)&&(p+=g+`
+`,e=e.substring(g.length+1),c=!0),!c){let Z=this.rules.other.nextBulletRegex(f),te=this.rules.other.hrRegex(f),ne=this.rules.other.fencesBeginRegex(f),se=this.rules.other.headingBeginRegex(f),xe=this.rules.other.htmlBeginRegex(f);for(;e;){let G=e.split(`
+`,1)[0],C;if(g=G,this.options.pedantic?(g=g.replace(this.rules.other.listReplaceNesting,"  "),C=g):C=g.replace(this.rules.other.tabCharGlobal,"    "),ne.test(g)||se.test(g)||xe.test(g)||Z.test(g)||te.test(g))break;if(C.search(this.rules.other.nonSpaceChar)>=f||!g.trim())u+=`
+`+C.slice(f);else{if(T||d.replace(this.rules.other.tabCharGlobal,"    ").search(this.rules.other.nonSpaceChar)>=4||ne.test(d)||se.test(d)||te.test(d))break;u+=`
+`+g}!T&&!g.trim()&&(T=!0),p+=G+`
+`,e=e.substring(G.length+1),d=C.slice(f)}}i.loose||(o?i.loose=!0:this.rules.other.doubleBlankLine.test(p)&&(o=!0));let y=null,ee;this.options.gfm&&(y=this.rules.other.listIsTask.exec(u),y&&(ee=y[0]!=="[ ] ",u=u.replace(this.rules.other.listReplaceTask,""))),i.items.push({type:"list_item",raw:p,task:!!y,checked:ee,loose:!1,text:u,tokens:[]}),i.raw+=p}let a=i.items.at(-1);if(a)a.raw=a.raw.trimEnd(),a.text=a.text.trimEnd();else return;i.raw=i.raw.trimEnd();for(let c=0;c<i.items.length;c++)if(this.lexer.state.top=!1,i.items[c].tokens=this.lexer.blockTokens(i.items[c].text,[]),!i.loose){let p=i.items[c].tokens.filter(d=>d.type==="space"),u=p.length>0&&p.some(d=>this.rules.other.anyLine.test(d.raw));i.loose=u}if(i.loose)for(let c=0;c<i.items.length;c++)i.items[c].loose=!0;return i}}html(e){let t=this.rules.block.html.exec(e);if(t)return{type:"html",block:!0,raw:t[0],pre:t[1]==="pre"||t[1]==="script"||t[1]==="style",text:t[0]}}def(e){let t=this.rules.block.def.exec(e);if(t){let n=t[1].toLowerCase().replace(this.rules.other.multipleSpaceGlobal," "),s=t[2]?t[2].replace(this.rules.other.hrefBrackets,"$1").replace(this.rules.inline.anyPunctuation,"$1"):"",i=t[3]?t[3].substring(1,t[3].length-1).replace(this.rules.inline.anyPunctuation,"$1"):t[3];return{type:"def",tag:n,raw:t[0],href:s,title:i}}}table(e){let t=this.rules.block.table.exec(e);if(!t||!this.rules.other.tableDelimiter.test(t[2]))return;let n=Y(t[1]),s=t[2].replace(this.rules.other.tableAlignChars,"").split("|"),i=t[3]?.trim()?t[3].replace(this.rules.other.tableRowBlankLine,"").split(`
+`):[],r={type:"table",raw:t[0],header:[],align:[],rows:[]};if(n.length===s.length){for(let o of s)this.rules.other.tableAlignRight.test(o)?r.align.push("right"):this.rules.other.tableAlignCenter.test(o)?r.align.push("center"):this.rules.other.tableAlignLeft.test(o)?r.align.push("left"):r.align.push(null);for(let o=0;o<n.length;o++)r.header.push({text:n[o],tokens:this.lexer.inline(n[o]),header:!0,align:r.align[o]});for(let o of i)r.rows.push(Y(o,r.header.length).map((a,c)=>({text:a,tokens:this.lexer.inline(a),header:!1,align:r.align[c]})));return r}}lheading(e){let t=this.rules.block.lheading.exec(e);if(t)return{type:"heading",raw:t[0],depth:t[2].charAt(0)==="="?1:2,text:t[1],tokens:this.lexer.inline(t[1])}}paragraph(e){let t=this.rules.block.paragraph.exec(e);if(t){let n=t[1].charAt(t[1].length-1)===`
+`?t[1].slice(0,-1):t[1];return{type:"paragraph",raw:t[0],text:n,tokens:this.lexer.inline(n)}}}text(e){let t=this.rules.block.text.exec(e);if(t)return{type:"text",raw:t[0],text:t[0],tokens:this.lexer.inline(t[0])}}escape(e){let t=this.rules.inline.escape.exec(e);if(t)return{type:"escape",raw:t[0],text:t[1]}}tag(e){let t=this.rules.inline.tag.exec(e);if(t)return!this.lexer.state.inLink&&this.rules.other.startATag.test(t[0])?this.lexer.state.inLink=!0:this.lexer.state.inLink&&this.rules.other.endATag.test(t[0])&&(this.lexer.state.inLink=!1),!this.lexer.state.inRawBlock&&this.rules.other.startPreScriptTag.test(t[0])?this.lexer.state.inRawBlock=!0:this.lexer.state.inRawBlock&&this.rules.other.endPreScriptTag.test(t[0])&&(this.lexer.state.inRawBlock=!1),{type:"html",raw:t[0],inLink:this.lexer.state.inLink,inRawBlock:this.lexer.state.inRawBlock,block:!1,text:t[0]}}link(e){let t=this.rules.inline.link.exec(e);if(t){let n=t[2].trim();if(!this.options.pedantic&&this.rules.other.startAngleBracket.test(n)){if(!this.rules.other.endAngleBracket.test(n))return;let r=A(n.slice(0,-1),"\\");if((n.length-r.length)%2===0)return}else{let r=de(t[2],"()");if(r===-2)return;if(r>-1){let a=(t[0].indexOf("!")===0?5:4)+t[1].length+r;t[2]=t[2].substring(0,r),t[0]=t[0].substring(0,a).trim(),t[3]=""}}let s=t[2],i="";if(this.options.pedantic){let r=this.rules.other.pedanticHrefTitle.exec(s);r&&(s=r[1],i=r[3])}else i=t[3]?t[3].slice(1,-1):"";return s=s.trim(),this.rules.other.startAngleBracket.test(s)&&(this.options.pedantic&&!this.rules.other.endAngleBracket.test(n)?s=s.slice(1):s=s.slice(1,-1)),me(t,{href:s&&s.replace(this.rules.inline.anyPunctuation,"$1"),title:i&&i.replace(this.rules.inline.anyPunctuation,"$1")},t[0],this.lexer,this.rules)}}reflink(e,t){let n;if((n=this.rules.inline.reflink.exec(e))||(n=this.rules.inline.nolink.exec(e))){let s=(n[2]||n[1]).replace(this.rules.other.multipleSpaceGlobal," "),i=t[s.toLowerCase()];if(!i){let r=n[0].charAt(0);return{type:"text",raw:r,text:r}}return me(n,i,n[0],this.lexer,this.rules)}}emStrong(e,t,n=""){let s=this.rules.inline.emStrongLDelim.exec(e);if(!s||s[3]&&n.match(this.rules.other.unicodeAlphaNumeric))return;if(!(s[1]||s[2]||"")||!n||this.rules.inline.punctuation.exec(n)){let r=[...s[0]].length-1,o,a,c=r,p=0,u=s[0][0]==="*"?this.rules.inline.emStrongRDelimAst:this.rules.inline.emStrongRDelimUnd;for(u.lastIndex=0,t=t.slice(-1*e.length+r);(s=u.exec(t))!=null;){if(o=s[1]||s[2]||s[3]||s[4]||s[5]||s[6],!o)continue;if(a=[...o].length,s[3]||s[4]){c+=a;continue}else if((s[5]||s[6])&&r%3&&!((r+a)%3)){p+=a;continue}if(c-=a,c>0)continue;a=Math.min(a,a+c+p);let d=[...s[0]][0].length,g=e.slice(0,r+s.index+d+a);if(Math.min(r,a)%2){let f=g.slice(1,-1);return{type:"em",raw:g,text:f,tokens:this.lexer.inlineTokens(f)}}let T=g.slice(2,-2);return{type:"strong",raw:g,text:T,tokens:this.lexer.inlineTokens(T)}}}}codespan(e){let t=this.rules.inline.code.exec(e);if(t){let n=t[2].replace(this.rules.other.newLineCharGlobal," "),s=this.rules.other.nonSpaceChar.test(n),i=this.rules.other.startingSpaceChar.test(n)&&this.rules.other.endingSpaceChar.test(n);return s&&i&&(n=n.substring(1,n.length-1)),{type:"codespan",raw:t[0],text:n}}}br(e){let t=this.rules.inline.br.exec(e);if(t)return{type:"br",raw:t[0]}}del(e){let t=this.rules.inline.del.exec(e);if(t)return{type:"del",raw:t[0],text:t[2],tokens:this.lexer.inlineTokens(t[2])}}autolink(e){let t=this.rules.inline.autolink.exec(e);if(t){let n,s;return t[2]==="@"?(n=t[1],s="mailto:"+n):(n=t[1],s=n),{type:"link",raw:t[0],text:n,href:s,tokens:[{type:"text",raw:n,text:n}]}}}url(e){let t;if(t=this.rules.inline.url.exec(e)){let n,s;if(t[2]==="@")n=t[0],s="mailto:"+n;else{let i;do i=t[0],t[0]=this.rules.inline._backpedal.exec(t[0])?.[0]??"";while(i!==t[0]);n=t[0],t[1]==="www."?s="http://"+t[0]:s=t[0]}return{type:"link",raw:t[0],text:n,href:s,tokens:[{type:"text",raw:n,text:n}]}}}inlineText(e){let t=this.rules.inline.text.exec(e);if(t){let n=this.lexer.state.inRawBlock;return{type:"text",raw:t[0],text:t[0],escaped:n}}}};var x=class l{tokens;options;state;tokenizer;inlineQueue;constructor(e){this.tokens=[],this.tokens.links=Object.create(null),this.options=e||w,this.options.tokenizer=this.options.tokenizer||new S,this.tokenizer=this.options.tokenizer,this.tokenizer.options=this.options,this.tokenizer.lexer=this,this.inlineQueue=[],this.state={inLink:!1,inRawBlock:!1,top:!0};let t={other:m,block:B.normal,inline:P.normal};this.options.pedantic?(t.block=B.pedantic,t.inline=P.pedantic):this.options.gfm&&(t.block=B.gfm,this.options.breaks?t.inline=P.breaks:t.inline=P.gfm),this.tokenizer.rules=t}static get rules(){return{block:B,inline:P}}static lex(e,t){return new l(t).lex(e)}static lexInline(e,t){return new l(t).inlineTokens(e)}lex(e){e=e.replace(m.carriageReturn,`
+`),this.blockTokens(e,this.tokens);for(let t=0;t<this.inlineQueue.length;t++){let n=this.inlineQueue[t];this.inlineTokens(n.src,n.tokens)}return this.inlineQueue=[],this.tokens}blockTokens(e,t=[],n=!1){for(this.options.pedantic&&(e=e.replace(m.tabCharGlobal,"    ").replace(m.spaceLine,""));e;){let s;if(this.options.extensions?.block?.some(r=>(s=r.call({lexer:this},e,t))?(e=e.substring(s.raw.length),t.push(s),!0):!1))continue;if(s=this.tokenizer.space(e)){e=e.substring(s.raw.length);let r=t.at(-1);s.raw.length===1&&r!==void 0?r.raw+=`
+`:t.push(s);continue}if(s=this.tokenizer.code(e)){e=e.substring(s.raw.length);let r=t.at(-1);r?.type==="paragraph"||r?.type==="text"?(r.raw+=`
+`+s.raw,r.text+=`
+`+s.text,this.inlineQueue.at(-1).src=r.text):t.push(s);continue}if(s=this.tokenizer.fences(e)){e=e.substring(s.raw.length),t.push(s);continue}if(s=this.tokenizer.heading(e)){e=e.substring(s.raw.length),t.push(s);continue}if(s=this.tokenizer.hr(e)){e=e.substring(s.raw.length),t.push(s);continue}if(s=this.tokenizer.blockquote(e)){e=e.substring(s.raw.length),t.push(s);continue}if(s=this.tokenizer.list(e)){e=e.substring(s.raw.length),t.push(s);continue}if(s=this.tokenizer.html(e)){e=e.substring(s.raw.length),t.push(s);continue}if(s=this.tokenizer.def(e)){e=e.substring(s.raw.length);let r=t.at(-1);r?.type==="paragraph"||r?.type==="text"?(r.raw+=`
+`+s.raw,r.text+=`
+`+s.raw,this.inlineQueue.at(-1).src=r.text):this.tokens.links[s.tag]||(this.tokens.links[s.tag]={href:s.href,title:s.title});continue}if(s=this.tokenizer.table(e)){e=e.substring(s.raw.length),t.push(s);continue}if(s=this.tokenizer.lheading(e)){e=e.substring(s.raw.length),t.push(s);continue}let i=e;if(this.options.extensions?.startBlock){let r=1/0,o=e.slice(1),a;this.options.extensions.startBlock.forEach(c=>{a=c.call({lexer:this},o),typeof a=="number"&&a>=0&&(r=Math.min(r,a))}),r<1/0&&r>=0&&(i=e.substring(0,r+1))}if(this.state.top&&(s=this.tokenizer.paragraph(i))){let r=t.at(-1);n&&r?.type==="paragraph"?(r.raw+=`
+`+s.raw,r.text+=`
+`+s.text,this.inlineQueue.pop(),this.inlineQueue.at(-1).src=r.text):t.push(s),n=i.length!==e.length,e=e.substring(s.raw.length);continue}if(s=this.tokenizer.text(e)){e=e.substring(s.raw.length);let r=t.at(-1);r?.type==="text"?(r.raw+=`
+`+s.raw,r.text+=`
+`+s.text,this.inlineQueue.pop(),this.inlineQueue.at(-1).src=r.text):t.push(s);continue}if(e){let r="Infinite loop on byte: "+e.charCodeAt(0);if(this.options.silent){console.error(r);break}else throw new Error(r)}}return this.state.top=!0,t}inline(e,t=[]){return this.inlineQueue.push({src:e,tokens:t}),t}inlineTokens(e,t=[]){let n=e,s=null;if(this.tokens.links){let o=Object.keys(this.tokens.links);if(o.length>0)for(;(s=this.tokenizer.rules.inline.reflinkSearch.exec(n))!=null;)o.includes(s[0].slice(s[0].lastIndexOf("[")+1,-1))&&(n=n.slice(0,s.index)+"["+"a".repeat(s[0].length-2)+"]"+n.slice(this.tokenizer.rules.inline.reflinkSearch.lastIndex))}for(;(s=this.tokenizer.rules.inline.anyPunctuation.exec(n))!=null;)n=n.slice(0,s.index)+"++"+n.slice(this.tokenizer.rules.inline.anyPunctuation.lastIndex);for(;(s=this.tokenizer.rules.inline.blockSkip.exec(n))!=null;)n=n.slice(0,s.index)+"["+"a".repeat(s[0].length-2)+"]"+n.slice(this.tokenizer.rules.inline.blockSkip.lastIndex);let i=!1,r="";for(;e;){i||(r=""),i=!1;let o;if(this.options.extensions?.inline?.some(c=>(o=c.call({lexer:this},e,t))?(e=e.substring(o.raw.length),t.push(o),!0):!1))continue;if(o=this.tokenizer.escape(e)){e=e.substring(o.raw.length),t.push(o);continue}if(o=this.tokenizer.tag(e)){e=e.substring(o.raw.length),t.push(o);continue}if(o=this.tokenizer.link(e)){e=e.substring(o.raw.length),t.push(o);continue}if(o=this.tokenizer.reflink(e,this.tokens.links)){e=e.substring(o.raw.length);let c=t.at(-1);o.type==="text"&&c?.type==="text"?(c.raw+=o.raw,c.text+=o.text):t.push(o);continue}if(o=this.tokenizer.emStrong(e,n,r)){e=e.substring(o.raw.length),t.push(o);continue}if(o=this.tokenizer.codespan(e)){e=e.substring(o.raw.length),t.push(o);continue}if(o=this.tokenizer.br(e)){e=e.substring(o.raw.length),t.push(o);continue}if(o=this.tokenizer.del(e)){e=e.substring(o.raw.length),t.push(o);continue}if(o=this.tokenizer.autolink(e)){e=e.substring(o.raw.length),t.push(o);continue}if(!this.state.inLink&&(o=this.tokenizer.url(e))){e=e.substring(o.raw.length),t.push(o);continue}let a=e;if(this.options.extensions?.startInline){let c=1/0,p=e.slice(1),u;this.options.extensions.startInline.forEach(d=>{u=d.call({lexer:this},p),typeof u=="number"&&u>=0&&(c=Math.min(c,u))}),c<1/0&&c>=0&&(a=e.substring(0,c+1))}if(o=this.tokenizer.inlineText(a)){e=e.substring(o.raw.length),o.raw.slice(-1)!=="_"&&(r=o.raw.slice(-1)),i=!0;let c=t.at(-1);c?.type==="text"?(c.raw+=o.raw,c.text+=o.text):t.push(o);continue}if(e){let c="Infinite loop on byte: "+e.charCodeAt(0);if(this.options.silent){console.error(c);break}else throw new Error(c)}}return t}};var $=class{options;parser;constructor(e){this.options=e||w}space(e){return""}code({text:e,lang:t,escaped:n}){let s=(t||"").match(m.notSpaceStart)?.[0],i=e.replace(m.endingNewline,"")+`
+`;return s?'<pre><code class="language-'+R(s)+'">'+(n?i:R(i,!0))+`</code></pre>
+`:"<pre><code>"+(n?i:R(i,!0))+`</code></pre>
+`}blockquote({tokens:e}){return`<blockquote>
+${this.parser.parse(e)}</blockquote>
+`}html({text:e}){return e}heading({tokens:e,depth:t}){return`<h${t}>${this.parser.parseInline(e)}</h${t}>
+`}hr(e){return`<hr>
+`}list(e){let t=e.ordered,n=e.start,s="";for(let o=0;o<e.items.length;o++){let a=e.items[o];s+=this.listitem(a)}let i=t?"ol":"ul",r=t&&n!==1?' start="'+n+'"':"";return"<"+i+r+`>
+`+s+"</"+i+`>
+`}listitem(e){let t="";if(e.task){let n=this.checkbox({checked:!!e.checked});e.loose?e.tokens[0]?.type==="paragraph"?(e.tokens[0].text=n+" "+e.tokens[0].text,e.tokens[0].tokens&&e.tokens[0].tokens.length>0&&e.tokens[0].tokens[0].type==="text"&&(e.tokens[0].tokens[0].text=n+" "+R(e.tokens[0].tokens[0].text),e.tokens[0].tokens[0].escaped=!0)):e.tokens.unshift({type:"text",raw:n+" ",text:n+" ",escaped:!0}):t+=n+" "}return t+=this.parser.parse(e.tokens,!!e.loose),`<li>${t}</li>
+`}checkbox({checked:e}){return"<input "+(e?'checked="" ':"")+'disabled="" type="checkbox">'}paragraph({tokens:e}){return`<p>${this.parser.parseInline(e)}</p>
+`}table(e){let t="",n="";for(let i=0;i<e.header.length;i++)n+=this.tablecell(e.header[i]);t+=this.tablerow({text:n});let s="";for(let i=0;i<e.rows.length;i++){let r=e.rows[i];n="";for(let o=0;o<r.length;o++)n+=this.tablecell(r[o]);s+=this.tablerow({text:n})}return s&&(s=`<tbody>${s}</tbody>`),`<table>
+<thead>
+`+t+`</thead>
+`+s+`</table>
+`}tablerow({text:e}){return`<tr>
+${e}</tr>
+`}tablecell(e){let t=this.parser.parseInline(e.tokens),n=e.header?"th":"td";return(e.align?`<${n} align="${e.align}">`:`<${n}>`)+t+`</${n}>
+`}strong({tokens:e}){return`<strong>${this.parser.parseInline(e)}</strong>`}em({tokens:e}){return`<em>${this.parser.parseInline(e)}</em>`}codespan({text:e}){return`<code>${R(e,!0)}</code>`}br(e){return"<br>"}del({tokens:e}){return`<del>${this.parser.parseInline(e)}</del>`}link({href:e,title:t,tokens:n}){let s=this.parser.parseInline(n),i=V(e);if(i===null)return s;e=i;let r='<a href="'+e+'"';return t&&(r+=' title="'+R(t)+'"'),r+=">"+s+"</a>",r}image({href:e,title:t,text:n,tokens:s}){s&&(n=this.parser.parseInline(s,this.parser.textRenderer));let i=V(e);if(i===null)return R(n);e=i;let r=`<img src="${e}" alt="${n}"`;return t&&(r+=` title="${R(t)}"`),r+=">",r}text(e){return"tokens"in e&&e.tokens?this.parser.parseInline(e.tokens):"escaped"in e&&e.escaped?e.text:R(e.text)}};var _=class{strong({text:e}){return e}em({text:e}){return e}codespan({text:e}){return e}del({text:e}){return e}html({text:e}){return e}text({text:e}){return e}link({text:e}){return""+e}image({text:e}){return""+e}br(){return""}};var b=class l{options;renderer;textRenderer;constructor(e){this.options=e||w,this.options.renderer=this.options.renderer||new $,this.renderer=this.options.renderer,this.renderer.options=this.options,this.renderer.parser=this,this.textRenderer=new _}static parse(e,t){return new l(t).parse(e)}static parseInline(e,t){return new l(t).parseInline(e)}parse(e,t=!0){let n="";for(let s=0;s<e.length;s++){let i=e[s];if(this.options.extensions?.renderers?.[i.type]){let o=i,a=this.options.extensions.renderers[o.type].call({parser:this},o);if(a!==!1||!["space","hr","heading","code","table","blockquote","list","html","paragraph","text"].includes(o.type)){n+=a||"";continue}}let r=i;switch(r.type){case"space":{n+=this.renderer.space(r);continue}case"hr":{n+=this.renderer.hr(r);continue}case"heading":{n+=this.renderer.heading(r);continue}case"code":{n+=this.renderer.code(r);continue}case"table":{n+=this.renderer.table(r);continue}case"blockquote":{n+=this.renderer.blockquote(r);continue}case"list":{n+=this.renderer.list(r);continue}case"html":{n+=this.renderer.html(r);continue}case"paragraph":{n+=this.renderer.paragraph(r);continue}case"text":{let o=r,a=this.renderer.text(o);for(;s+1<e.length&&e[s+1].type==="text";)o=e[++s],a+=`
+`+this.renderer.text(o);t?n+=this.renderer.paragraph({type:"paragraph",raw:a,text:a,tokens:[{type:"text",raw:a,text:a,escaped:!0}]}):n+=a;continue}default:{let o='Token with "'+r.type+'" type was not found.';if(this.options.silent)return console.error(o),"";throw new Error(o)}}}return n}parseInline(e,t=this.renderer){let n="";for(let s=0;s<e.length;s++){let i=e[s];if(this.options.extensions?.renderers?.[i.type]){let o=this.options.extensions.renderers[i.type].call({parser:this},i);if(o!==!1||!["escape","html","link","image","strong","em","codespan","br","del","text"].includes(i.type)){n+=o||"";continue}}let r=i;switch(r.type){case"escape":{n+=t.text(r);break}case"html":{n+=t.html(r);break}case"link":{n+=t.link(r);break}case"image":{n+=t.image(r);break}case"strong":{n+=t.strong(r);break}case"em":{n+=t.em(r);break}case"codespan":{n+=t.codespan(r);break}case"br":{n+=t.br(r);break}case"del":{n+=t.del(r);break}case"text":{n+=t.text(r);break}default:{let o='Token with "'+r.type+'" type was not found.';if(this.options.silent)return console.error(o),"";throw new Error(o)}}}return n}};var L=class{options;block;constructor(e){this.options=e||w}static passThroughHooks=new Set(["preprocess","postprocess","processAllTokens"]);preprocess(e){return e}postprocess(e){return e}processAllTokens(e){return e}provideLexer(){return this.block?x.lex:x.lexInline}provideParser(){return this.block?b.parse:b.parseInline}};var E=class{defaults=z();options=this.setOptions;parse=this.parseMarkdown(!0);parseInline=this.parseMarkdown(!1);Parser=b;Renderer=$;TextRenderer=_;Lexer=x;Tokenizer=S;Hooks=L;constructor(...e){this.use(...e)}walkTokens(e,t){let n=[];for(let s of e)switch(n=n.concat(t.call(this,s)),s.type){case"table":{let i=s;for(let r of i.header)n=n.concat(this.walkTokens(r.tokens,t));for(let r of i.rows)for(let o of r)n=n.concat(this.walkTokens(o.tokens,t));break}case"list":{let i=s;n=n.concat(this.walkTokens(i.items,t));break}default:{let i=s;this.defaults.extensions?.childTokens?.[i.type]?this.defaults.extensions.childTokens[i.type].forEach(r=>{let o=i[r].flat(1/0);n=n.concat(this.walkTokens(o,t))}):i.tokens&&(n=n.concat(this.walkTokens(i.tokens,t)))}}return n}use(...e){let t=this.defaults.extensions||{renderers:{},childTokens:{}};return e.forEach(n=>{let s={...n};if(s.async=this.defaults.async||s.async||!1,n.extensions&&(n.extensions.forEach(i=>{if(!i.name)throw new Error("extension name required");if("renderer"in i){let r=t.renderers[i.name];r?t.renderers[i.name]=function(...o){let a=i.renderer.apply(this,o);return a===!1&&(a=r.apply(this,o)),a}:t.renderers[i.name]=i.renderer}if("tokenizer"in i){if(!i.level||i.level!=="block"&&i.level!=="inline")throw new Error("extension level must be 'block' or 'inline'");let r=t[i.level];r?r.unshift(i.tokenizer):t[i.level]=[i.tokenizer],i.start&&(i.level==="block"?t.startBlock?t.startBlock.push(i.start):t.startBlock=[i.start]:i.level==="inline"&&(t.startInline?t.startInline.push(i.start):t.startInline=[i.start]))}"childTokens"in i&&i.childTokens&&(t.childTokens[i.name]=i.childTokens)}),s.extensions=t),n.renderer){let i=this.defaults.renderer||new $(this.defaults);for(let r in n.renderer){if(!(r in i))throw new Error(`renderer '${r}' does not exist`);if(["options","parser"].includes(r))continue;let o=r,a=n.renderer[o],c=i[o];i[o]=(...p)=>{let u=a.apply(i,p);return u===!1&&(u=c.apply(i,p)),u||""}}s.renderer=i}if(n.tokenizer){let i=this.defaults.tokenizer||new S(this.defaults);for(let r in n.tokenizer){if(!(r in i))throw new Error(`tokenizer '${r}' does not exist`);if(["options","rules","lexer"].includes(r))continue;let o=r,a=n.tokenizer[o],c=i[o];i[o]=(...p)=>{let u=a.apply(i,p);return u===!1&&(u=c.apply(i,p)),u}}s.tokenizer=i}if(n.hooks){let i=this.defaults.hooks||new L;for(let r in n.hooks){if(!(r in i))throw new Error(`hook '${r}' does not exist`);if(["options","block"].includes(r))continue;let o=r,a=n.hooks[o],c=i[o];L.passThroughHooks.has(r)?i[o]=p=>{if(this.defaults.async)return Promise.resolve(a.call(i,p)).then(d=>c.call(i,d));let u=a.call(i,p);return c.call(i,u)}:i[o]=(...p)=>{let u=a.apply(i,p);return u===!1&&(u=c.apply(i,p)),u}}s.hooks=i}if(n.walkTokens){let i=this.defaults.walkTokens,r=n.walkTokens;s.walkTokens=function(o){let a=[];return a.push(r.call(this,o)),i&&(a=a.concat(i.call(this,o))),a}}this.defaults={...this.defaults,...s}}),this}setOptions(e){return this.defaults={...this.defaults,...e},this}lexer(e,t){return x.lex(e,t??this.defaults)}parser(e,t){return b.parse(e,t??this.defaults)}parseMarkdown(e){return(n,s)=>{let i={...s},r={...this.defaults,...i},o=this.onError(!!r.silent,!!r.async);if(this.defaults.async===!0&&i.async===!1)return o(new Error("marked(): The async option was set to true by an extension. Remove async: false from the parse options object to return a Promise."));if(typeof n>"u"||n===null)return o(new Error("marked(): input parameter is undefined or null"));if(typeof n!="string")return o(new Error("marked(): input parameter is of type "+Object.prototype.toString.call(n)+", string expected"));r.hooks&&(r.hooks.options=r,r.hooks.block=e);let a=r.hooks?r.hooks.provideLexer():e?x.lex:x.lexInline,c=r.hooks?r.hooks.provideParser():e?b.parse:b.parseInline;if(r.async)return Promise.resolve(r.hooks?r.hooks.preprocess(n):n).then(p=>a(p,r)).then(p=>r.hooks?r.hooks.processAllTokens(p):p).then(p=>r.walkTokens?Promise.all(this.walkTokens(p,r.walkTokens)).then(()=>p):p).then(p=>c(p,r)).then(p=>r.hooks?r.hooks.postprocess(p):p).catch(o);try{r.hooks&&(n=r.hooks.preprocess(n));let p=a(n,r);r.hooks&&(p=r.hooks.processAllTokens(p)),r.walkTokens&&this.walkTokens(p,r.walkTokens);let u=c(p,r);return r.hooks&&(u=r.hooks.postprocess(u)),u}catch(p){return o(p)}}}onError(e,t){return n=>{if(n.message+=`
+Please report this to https://github.com/markedjs/marked.`,e){let s="<p>An error occurred:</p><pre>"+R(n.message+"",!0)+"</pre>";return t?Promise.resolve(s):s}if(t)return Promise.reject(n);throw n}}};var M=new E;function k(l,e){return M.parse(l,e)}k.options=k.setOptions=function(l){return M.setOptions(l),k.defaults=M.defaults,N(k.defaults),k};k.getDefaults=z;k.defaults=w;k.use=function(...l){return M.use(...l),k.defaults=M.defaults,N(k.defaults),k};k.walkTokens=function(l,e){return M.walkTokens(l,e)};k.parseInline=M.parseInline;k.Parser=b;k.parser=b.parse;k.Renderer=$;k.TextRenderer=_;k.Lexer=x;k.lexer=x.lex;k.Tokenizer=S;k.Hooks=L;k.parse=k;var it=k.options,ot=k.setOptions,lt=k.use,at=k.walkTokens,ct=k.parseInline,pt=k,ut=b.parse,ht=x.lex;
+
+if(__exports != exports)module.exports = exports;return module.exports}));
+
+  </script>
+  <script>
+    (function () {
+      var src = document.getElementById("markdown-source").value || "";
+      var el = document.getElementById("content");
+
+      // 战报卡：把 ``## MVP ...`` 横幅与比分行组装成 .match-banner。
+      // 网络 t2i 当前 504 超时，但保留此路径以便服务恢复后样式一致。
+      function buildMatchBanner(root) {
+        var h2s = Array.prototype.slice.call(root.querySelectorAll("h2"));
+        var bannerH2 = null;
+        for (var i = 0; i < h2s.length; i++) {
+          if ((h2s[i].textContent || "").trim().startsWith("MVP ")) {
+            bannerH2 = h2s[i];
+            break;
+          }
+        }
+        if (!bannerH2) return;
+        var scoreP = bannerH2.nextElementSibling;
+        if (!scoreP || scoreP.tagName !== "P") return;
+
+        var img = bannerH2.querySelector("img");
+        var heroName = img ? (img.alt || "") : "";
+        var artUrl = img ? img.src : "";
+
+        // 玩家名 = 第一个非空文本节点；KDA = 匹配 x/y/z 的文本。
+        // 模板里没有用 <strong>，因此不能按 strong 解析。
+        var rawText = (bannerH2.textContent || "").replace(/^MVP\s*/, "").trim();
+        var parts = rawText.split("·");
+        var name = "";
+        var kda = "";
+        parts.forEach(function (part) {
+          var t = part.trim();
+          if (!t) return;
+          if (/^\d+\/\d+\/\d+$/.test(t)) kda = t;
+          else if (!name) name = t;
+        });
+
+        var scoreText = scoreP.textContent || "";
+        var scoreMatch = scoreText.match(/(天辉)\s+(\d+)\s*:\s*(\d+)\s+(夜魇)/);
+        if (!scoreMatch || !kda) return;
+
+        var radiantScore = parseInt(scoreMatch[2], 10);
+        var direScore = parseInt(scoreMatch[3], 10);
+        var leftWin = radiantScore > direScore;
+        var meta = scoreText.split("·").slice(1).join(" · ").trim();
+
+        var wrap = document.createElement("div");
+        wrap.className = "match-banner";
+        var art = document.createElement("div");
+        art.className = "banner-art";
+        if (artUrl) art.style.backgroundImage = "url(" + artUrl + ")";
+        var info = document.createElement("div");
+        info.className = "banner-info";
+        info.innerHTML = '<div class="banner-meta">' + escapeHtml(meta) + '</div>' +
+          '<div class="banner-eyebrow">MVP</div>' +
+          '<div class="banner-name">' + escapeHtml(name || "匿名玩家") + '</div>' +
+          '<div class="banner-hero">' + escapeHtml(heroName) + '</div>' +
+          '<div class="banner-kda"><span class="k">' + escapeHtml(kda.split("/")[0] || "") + '</span>/<span class="d">' + escapeHtml(kda.split("/")[1] || "") + '</span>/<span class="a">' + escapeHtml(kda.split("/")[2] || "") + '</span></div>';
+        var score = document.createElement("div");
+        score.className = "banner-score";
+        score.innerHTML = '<span>' + escapeHtml(scoreMatch[1]) + '</span>' +
+          '<span class="score-num ' + (leftWin ? "win" : "lose") + '">' + escapeHtml(scoreMatch[2]) + '</span>' +
+          '<span class="sep">:</span>' +
+          '<span class="score-num ' + (leftWin ? "lose" : "win") + '">' + escapeHtml(scoreMatch[3]) + '</span>' +
+          '<span>' + escapeHtml(scoreMatch[4]) + '</span>';
+        info.appendChild(score);
+        wrap.appendChild(art);
+        wrap.appendChild(info);
+        bannerH2.parentNode.insertBefore(wrap, bannerH2);
+        bannerH2.parentNode.removeChild(bannerH2);
+        scoreP.parentNode.removeChild(scoreP);
+      }
+
+      function styleTeamBands(root) {
+        root.querySelectorAll("h2").forEach(function (h2) {
+          if (h2.classList.contains("analysis-heading")) return;
+          if ((h2.textContent || "").trim().startsWith("MVP ")) return;
+          h2.classList.add("team-band");
+          var txt = h2.textContent || "";
+          if (txt.indexOf("获胜") !== -1) h2.classList.add("team-win");
+          else h2.classList.add("team-lose");
+        });
+      }
+
+      function restructurePlayerBlocks(root) {
+        root.querySelectorAll(".player-block").forEach(function (block) {
+          var h3 = block.querySelector("h3");
+          if (!h3 || h3.dataset.restructured) return;
+          var html = h3.innerHTML;
+          var gpm = "", xpm = "";
+          html = html.replace(/GPM (\d+)/g, function (_, n) { gpm = n; return ""; });
+          html = html.replace(/XPM (\d+)/g, function (_, n) { xpm = n; return ""; });
+          html = html.replace(/\s*·\s*$/, "").replace(/\s*·\s*·\s*/g, " · ");
+          if (gpm || xpm) {
+            var core = document.createElement("span");
+            core.className = "core-metrics";
+            core.innerHTML = (gpm ? "GPM " + escapeHtml(gpm) : "") +
+              (gpm && xpm ? " · " : "") + (xpm ? "XPM " + escapeHtml(xpm) : "");
+            h3.innerHTML = html;
+            h3.appendChild(core);
+          }
+          h3.querySelectorAll("strong").forEach(function (st) {
+            var t = st.textContent || "";
+            if (/^\d+\/\d+\/\d+$/.test(t)) {
+              var parts = t.split("/");
+              st.innerHTML = '<span class="k">' + escapeHtml(parts[0]) + '</span>/<span class="d">' + escapeHtml(parts[1]) + '</span>/<span class="a">' + escapeHtml(parts[2]) + '</span>';
+            }
+          });
+          block.querySelectorAll("p").forEach(function (p) {
+            var txt = p.textContent || "";
+            // 指标条现在以 GPM/XPM 开头，含「金钱」即认为是指标行（8 项）
+            if (txt.indexOf("｜") === -1 || txt.indexOf("金钱") === -1) return;
+            var strip = document.createElement("div");
+            strip.className = "metric-strip";
+            txt.split("｜").forEach(function (seg) {
+              var m = seg.trim().match(/^(\S+)\s+(.+)$/);
+              if (!m) return;
+              var cell = document.createElement("div");
+              cell.className = "metric";
+              cell.innerHTML = '<span class="metric-value">' + escapeHtml(m[2]) + '</span><span class="metric-label">' + escapeHtml(m[1]) + '</span>';
+              strip.appendChild(cell);
+            });
+            p.parentNode.replaceChild(strip, p);
+          });
+          h3.dataset.restructured = "1";
+        });
+      }
+
+      function escapeHtml(s) {
+        return (s || "").replace(/[&<>"]/g, function (c) {
+          return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c];
+        });
+      }
+      function paintResultMarks(root) {
+        var walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, null);
+        var nodes = [];
+        while (walker.nextNode()) nodes.push(walker.currentNode);
+        nodes.forEach(function (node) {
+          var t = node.nodeValue || "";
+          if (t.indexOf("\u2705") === -1 && t.indexOf("\u274c") === -1) return;
+          var frag = document.createDocumentFragment();
+          for (var i = 0; i < t.length; i++) {
+            var ch = t.charAt(i);
+            if (ch === "\u2705" || ch === "\u274c") {
+              var span = document.createElement("span");
+              span.textContent = ch;
+              span.style.color = ch === "\u2705" ? "#1a7f37" : "#cf222e";
+              span.style.fontWeight = "700";
+              frag.appendChild(span);
+            } else {
+              frag.appendChild(document.createTextNode(ch));
+            }
+          }
+          node.parentNode.replaceChild(frag, node);
+        });
+      }
+
+      // 玩家区块：把每个 ### 玩家段落及其后两行（数据行、装备行）包进
+      // .player-block，并把英雄立绘从 h3 里提出来当独立的第一列，
+      // 由 CSS 的 grid-row:1/span 3 让它竖跨三行 —— 这就是需求里
+      // 「英雄头像占据左侧、跨越三行，右侧才是其它数据」的实现。
+      //
+      // 为什么放在渲染后而不是模板里：Markdown 由 core/templates.py 统一生成，
+      // 而 t2i 端点只吃纯 Markdown（tmpldata.text）；在这里改造 DOM，
+      // 本地 Pillow 路径与网络路径共用同一份 Markdown，两边都不会跑偏。
+      function groupPlayerBlocks(root) {
+        var heads = Array.prototype.slice.call(root.querySelectorAll("h3"));
+        heads.forEach(function (head) {
+          if (head.dataset && head.dataset.playerGrouped) return;
+
+          // 只处理「玩家标题」：必须带英雄立绘。
+          // 拿不到立绘（缓存缺失/图片加载失败）时不分组，
+          // 版式退回普通段落，标题里的英雄名照常显示。
+          var img = head.querySelector("img");
+          if (!img) return;
+
+          // 先把跟随的行收集起来，**再**移动 head ——
+          // 一旦 head 被移进区块，head.nextElementSibling 就变成 null 了，
+          // 那时再去遍历会一行都收不到（数据行、装备行会留在区块外面）。
+          var followers = [];
+          var node = head.nextElementSibling;
+          var guard = 0;
+          while (node && guard < 4) {
+            if (/^H[1-6]$/.test(node.tagName) || node.tagName === "TABLE") break;
+            if (node.tagName === "P" && (node.textContent || "").trim() === "") break;
+            followers.push(node);
+            node = node.nextElementSibling;
+            guard++;
+          }
+
+          var block = document.createElement("div");
+          block.className = "player-block";
+          head.parentNode.insertBefore(block, head);
+
+          // 立绘提出来作为第一列（grid 第一格），由 CSS 让它竖跨三行
+          img.classList.add("hero-portrait");
+          block.appendChild(img);
+          // 立绘后面原本跟着一个「 · 」分隔符，图片被摘走后它会悬在行首，
+          // 变成「· Lv.19 · miracle · 10/2/5」。这里连同左侧空白一起去掉。
+          var first = head.firstChild;
+          if (first && first.nodeType === 3) {
+            first.nodeValue = (first.nodeValue || "")
+              .replace(/^\s*·\s*/, "");
+          }
+          block.appendChild(head);
+          followers.forEach(function (row) { block.appendChild(row); });
+
+          if (head.dataset) head.dataset.playerGrouped = "1";
+        });
+      }
+
+      // 立绘缺失时不要留一个空框：直接隐藏，让标题行里的英雄名照常显示
+      function guardBrokenPortraits(root) {
+        Array.prototype.slice.call(root.querySelectorAll("img.hero-portrait"))
+          .forEach(function (img) {
+            img.addEventListener("error", function () {
+              img.setAttribute("data-broken", "1");
+            });
+            if (img.complete && img.naturalWidth === 0) {
+              img.setAttribute("data-broken", "1");
+            }
+          });
+      }
+
+      // 标记「综合分析」区块，让它作为卡片最后一个区块单独着色
+      function markAnalysisBlock(root) {
+        var headings = root.querySelectorAll("h2");
+        if (!headings.length) return;
+        var last = headings[headings.length - 1];
+        // 末尾评价区块的标题：对局是「综合分析」，其余查询是「点评」
+        // （见 templates.ANALYSIS_TITLES）。两个都要认，否则换成「点评」
+        // 后这一块拿不到 analysis-heading / analysis-body 这两个类，
+        // 底纹与边框全丢，就与本地 Pillow 路径不一致了。
+        var heading = (last.textContent || "").trim();
+        if (heading !== "综合分析" && heading !== "点评") return;
+        last.classList.add("analysis-heading");
+        var node = last.nextElementSibling;
+        while (node) {
+          node.classList.add("analysis-body");
+          node = node.nextElementSibling;
+        }
+      }
+
+      if (window.marked) {
+        try {
+          el.innerHTML = marked.parse(src);
+          paintResultMarks(el);
+          buildMatchBanner(el);
+          groupPlayerBlocks(el);
+          restructurePlayerBlocks(el);
+          styleTeamBands(el);
+          guardBrokenPortraits(el);
+          markAnalysisBlock(el);
+        } catch (e) {
+          el.textContent = src;
+        }
+      } else {
+        // marked 异常时退化为保留换行的纯文本，避免整张卡片空白或高度塌缩
+        el.style.whiteSpace = "pre-wrap";
+        el.style.wordBreak = "break-word";
+        el.textContent = src;
+      }
+    })();
+  </script>
+</body>
+</html>
