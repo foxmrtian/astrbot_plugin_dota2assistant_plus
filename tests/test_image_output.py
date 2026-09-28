@@ -292,188 +292,157 @@ class TestComposeCard(unittest.TestCase):
 
 
 class TestWhiteTheme(unittest.TestCase):
-    """白底主题：背景 #ffffff，分栏目标题深蓝色，详情正文黑色。"""
+    """通用卡片（战绩/英雄/物品等）必须**跟随主题**，不再固定白底黑字。
 
-    BG = (255, 255, 255)    # #ffffff
-    HEAD = (30, 58, 138)    # #1e3a8a 深蓝
-    INK = (0, 0, 0)         # 黑色正文
-    ANALYSIS_BG = (255, 248, 239)  # #fff8ef 浅暖色底纹
+    这些卡片此前只从主题里读 accent / analysis_*，bg、ink 一律用模块常量，
+    于是深色与粉色主题下它们仍是白底黑字，与战报卡风格割裂（用户报障）。
+    现在它们与战报卡共用同一套令牌，期望值直接从预设取，与唯一事实源同步。
+    """
 
-    def test_background_is_white(self):
+    @staticmethod
+    def _tok(theme=None):
+        from astrbot_plugin_dota2assistant_plus.core.image_renderer import _match_tokens
+
+        return _match_tokens(theme)
+
+    @staticmethod
+    def _near(a, b, tol=6):
+        return all(abs(a[i] - b[i]) <= tol for i in range(3))
+
+    def _render(self, card, theme=None):
         import tempfile
 
         from PIL import Image
 
         with tempfile.TemporaryDirectory() as d:
-            out = os.path.join(d, "d.png")
-            render_text_to_image("# 战绩\n\n| a | b |\n|---|---|\n| 1 | 2 |\n", out)
-            with Image.open(out).convert("RGB") as img:
-                w, h = img.size
-                corner = img.getpixel((w - 6, h // 2))
-            self.assertEqual(corner, self.BG, f"背景应为 #ffffff，实际 {corner}")
+            out = os.path.join(d, "c.png")
+            render_text_to_image(card, out, theme=theme)
+            img = Image.open(out).convert("RGB")   # convert 立即解码，可安全离开临时目录
+        return img, img.load()
 
-    def test_heading_is_deep_blue(self):
-        """分栏目标题必须用深蓝色 #1e3a8a。"""
-        import tempfile
+    def test_background_follows_theme(self):
+        """默认（light）主题：背景 #ffffff。"""
+        card = "# 战绩\n\n| a | b |\n|---|---|\n| 1 | 2 |\n"
+        img, px = self._render(card)
+        w, h = img.size
+        self.assertEqual(px[w - 6, h // 2], self._tok()["bg"])
 
-        from PIL import Image
-
+    def test_heading_uses_theme_accent(self):
+        """分栏目标题用主题 accent（light 下 #1d4ed8）。"""
         card = "# 战绩\n\n## 双方阵容\n\n| 英雄 | KDA |\n|---|---|\n| 灰烬之灵 | 12/1/9 |\n"
-        with tempfile.TemporaryDirectory() as d:
-            out = os.path.join(d, "h.png")
-            render_text_to_image(card, out)
-            with Image.open(out).convert("RGB") as img:
-                w, h = img.size
-                px = img.load()
-            found = False
-            for y in range(h):
-                for x in range(w):
-                    r, g, b = px[x, y]
-                    # 深蓝：蓝通道显著高于红通道，且不是白/灰（蓝通道足够低）
-                    if b >= 100 and b <= 200 and b - r >= 40 and g <= 200:
-                        found = True
-                        break
-                if found:
-                    break
-            self.assertTrue(found, "未找到深蓝色标题像素（应为 #1e3a8a）")
-
-    def test_body_text_is_black(self):
-        """详情正文必须是黑色（白底下深色墨字）。
-
-        判据用 max(通道) <= 40：深蓝标题 (30,58,138) 的 max 是 138，
-        因此该计数天然只命中黑色正文，不会把蓝色标题算进来。
-        """
-        import tempfile
-
-        from PIL import Image
-
-        card = "# 标题\n\n这是一段正文说明文字，应当渲染为黑色。\n"
-        with tempfile.TemporaryDirectory() as d:
-            out = os.path.join(d, "w.png")
-            render_text_to_image(card, out)
-            with Image.open(out).convert("RGB") as img:
-                px = img.load()
-                w, h = img.size
-                black = sum(
-                    1 for y in range(h) for x in range(w) if max(px[x, y]) <= 40
-                )
-        self.assertGreater(
-            black, 200, f"正文黑色像素过少（{black}），文字可能不是黑色"
+        img, px = self._render(card)
+        w, h = img.size
+        accent = self._tok()["accent"]
+        hits = sum(
+            1 for y in range(h) for x in range(w) if self._near(px[x, y], accent, 12)
         )
+        self.assertGreater(hits, 80, f"未找到主题 accent 像素（分栏目标题），仅 {hits}")
 
-    def test_body_is_black_while_heading_is_blue(self):
-        """正文与分栏目标题必须是两种颜色：正文黑、标题深蓝。"""
-        import tempfile
+    def test_body_text_uses_theme_ink(self):
+        """正文用主题正文色（light 下 #1e293b），而不是硬编码纯黑。"""
+        card = "# 标题\n\n这是一段正文说明文字，应当渲染为正文色。\n"
+        img, px = self._render(card)
+        w, h = img.size
+        ink = self._tok()["ink2"]
+        hits = sum(1 for y in range(h) for x in range(w) if self._near(px[x, y], ink, 26))
+        self.assertGreater(hits, 200, f"正文像素过少（{hits}），文字可能未用主题正文色")
 
-        from PIL import Image
-
+    def test_body_and_heading_differ(self):
+        """正文与分栏目标题必须是两种颜色。"""
         card = "# 标题\n\n这是一段正文说明文字。\n"
-        with tempfile.TemporaryDirectory() as d:
-            out = os.path.join(d, "b.png")
-            render_text_to_image(card, out)
-            with Image.open(out).convert("RGB") as img:
-                px = img.load()
-                w, h = img.size
-                black = sum(
-                    1 for y in range(h) for x in range(w) if max(px[x, y]) <= 40
+        img, px = self._render(card)
+        w, h = img.size
+        ink, accent = self._tok()["ink2"], self._tok()["accent"]
+        body = sum(1 for y in range(h) for x in range(w) if self._near(px[x, y], ink, 26))
+        head = sum(
+            1 for y in range(h) for x in range(w) if self._near(px[x, y], accent, 12)
+        )
+        self.assertGreater(body, 200, "正文未用主题正文色")
+        self.assertGreater(head, 80, "标题未用主题 accent")
+
+    def test_dark_and_pink_themes_are_not_white(self):
+        """回归护栏：深色/粉色主题下通用卡不能仍是白底。
+
+        这正是用户报的「只有单场战报卡换肤、其它查询仍是白底」。
+        """
+        from astrbot_plugin_dota2assistant_plus.core.card_renderer import resolve_preset
+
+        card = (
+            "# 玩家资料\n\n| 项目 | 数据 |\n|---|---|\n| 段位 | 中军 2星 |"
+            "\n\n### 综合分析\n\n打得不错，节奏带得好。\n"
+        )
+        for name in ("dark-gold", "pink", "navy-gold"):
+            with self.subTest(preset=name):
+                theme = resolve_preset(name)
+                img, px = self._render(card, theme=theme)
+                corner = px[4, 4]
+                self.assertTrue(
+                    self._near(corner, self._tok(theme)["bg"]),
+                    f"{name} 通用卡底色应为主题底色，实际 {corner}",
                 )
-                blue = sum(
-                    1
-                    for y in range(h)
-                    for x in range(w)
-                    if px[x, y][2] >= 100
-                    and px[x, y][2] - px[x, y][0] >= 40
-                    and px[x, y][1] <= 200
-                )
-        self.assertGreater(black, 200, "正文应为黑色")
-        self.assertGreater(blue, 200, "标题应为深蓝色")
-        # 两者不能是同一种颜色
-        self.assertNotEqual((0, 0, 0), (30, 58, 138), "标题与正文颜色必须区分开")
+                self.assertNotEqual(corner, (255, 255, 255), f"{name} 不应是白底")
 
-    def test_contrast_against_white_bg(self):
-        """黑色正文与深蓝标题在白底上的对比度必须足够高（WCAG >= 4.5）。"""
-        def lum(c):
-            def ch(v):
-                v /= 255.0
-                return v / 12.92 if v <= 0.04045 else ((v + 0.055) / 1.055) ** 2.4
+    @staticmethod
+    def _accent_run(px, w, h, x):
+        """x 列上最长的 accent 连续段，用于定位点评区块左侧色条。"""
+        from astrbot_plugin_dota2assistant_plus.core.image_renderer import _match_tokens
 
-            r, g, b = c
-            return 0.2126 * ch(r) + 0.7152 * ch(g) + 0.0722 * ch(b)
-
-        def ratio(a, b):
-            la, lb = lum(a), lum(b)
-            hi, lo = max(la, lb), min(la, lb)
-            return (hi + 0.05) / (lo + 0.05)
-
-        self.assertGreaterEqual(ratio(self.INK, self.BG), 4.5)
-        # 深蓝标题在白底上同样要清晰
-        self.assertGreaterEqual(ratio(self.HEAD, self.BG), 4.5)
+        accent = _match_tokens(None)["accent"]
+        best = (0, 0)
+        cur = None
+        for y in range(6, h):          # 跳过顶部 3px 强调条
+            if all(abs(px[x, y][i] - accent[i]) <= 6 for i in range(3)):
+                cur = y if cur is None else cur
+            else:
+                if cur is not None and (y - cur) > (best[1] - best[0]):
+                    best = (cur, y)
+                cur = None
+        if cur is not None and (h - cur) > (best[1] - best[0]):
+            best = (cur, h)
+        return best
 
     def test_analysis_block_rendered_at_bottom(self):
-        import tempfile
-
-        from PIL import Image
-
-        card = "# 战绩\n\n| 结果 | 英雄 |\n|---|---|\n| ✅ | 灰烬之灵 |\n" + "\n## 综合分析\n\n中期节奏很好\n"
-        with tempfile.TemporaryDirectory() as d:
-            out = os.path.join(d, "a.png")
-            render_text_to_image(card, out)
-            with Image.open(out).convert("RGB") as img:
-                w, h = img.size
-                # 扫描浅暖色分析块底纹（#fff8ef）
-                band_ys = [
-                    y
-                    for y in range(h)
-                    if self._is_band(img.getpixel((w // 2, y)))
-                ]
-            self.assertTrue(band_ys, "未渲染出综合分析区块")
-            # 区块必须位于图片下半部分
-            self.assertGreater(min(band_ys), h // 2)
-            # 数据区（顶部附近）不应是分析块底色
-            with Image.open(out).convert("RGB") as img:
-                top = img.getpixel((w // 2, 4))
-            self.assertFalse(self._is_band(top))
-
-    @staticmethod
-    def _is_band(px) -> bool:
-        r, g, b = px
-        return r >= 246 and 232 <= g <= 253 and 220 <= b <= 250 and (r - b) >= 5
-
-    @staticmethod
-    def _is_table_fill(px) -> bool:
-        """表头 #eef2f7 与斑马纹 #fafbfc 两种区块填充色。"""
-        r, g, b = px
-        return (225 <= r <= 242 and 232 <= g <= 246 and b >= r) or (
-            246 <= r <= 253 and 248 <= g <= 254 and b >= r
+        """点评区块必须在图片下半部分，靠左侧 accent 色条定位。"""
+        card = (
+            "# 战绩\n\n| 结果 | 英雄 |\n|---|---|\n| ✅ | 灰烬之灵 |\n"
+            + "\n## 综合分析\n\n中期节奏很好\n"
         )
+        img, px = self._render(card)
+        w, h = img.size
+        start, end = self._accent_run(px, w, h, x=16)
+        self.assertGreater(end - start, 20, "未渲染出点评区块左侧色条")
+        self.assertGreater(start, h // 2, "点评区块不在图片下半部分")
 
     def test_no_overlap_between_table_and_analysis(self):
-        import tempfile
+        """表格在上、点评区块在下，两者不重叠。
 
-        from PIL import Image
-
+        点评块底色与表头同色（预设里 ``analysis_bg == panel``），颜色无法区分，
+        因此用点评块左侧的 accent 色条定位它的纵向范围。
+        """
         rows = "\n".join(f"| ✅ | 英雄{i} | {i}/1/2 |" for i in range(8))
         card = (
             "# 战绩\n\n| 结果 | 英雄 | KDA |\n|---|---|---|\n"
             + rows
             + "\n\n## 综合分析\n\n总结文字\n"
         )
-        with tempfile.TemporaryDirectory() as d:
-            out = os.path.join(d, "n.png")
-            render_text_to_image(card, out)
-            with Image.open(out).convert("RGB") as img:
-                w, h = img.size
-                px = img.load()
-                band_ys = [y for y in range(h) if self._is_band(px[w // 2, y])]
-                # 表格行的填充色（表头 #eef2f7 / 斑马纹 #fafbfc）出现在图片右侧
-                fill_ys = [y for y in range(h) if self._is_table_fill(px[w - 40, y])]
-            self.assertTrue(band_ys, "未渲染出综合分析区块")
-            self.assertTrue(fill_ys, "未渲染出表格填充色")
-            self.assertGreater(
-                band_ys[0],
-                max(fill_ys),
-                "综合分析块与表格重叠",
-            )
+        img, px = self._render(card)
+        w, h = img.size
+        tk = self._tok()
+        band_start, band_end = self._accent_run(px, w, h, x=16)
+        self.assertGreater(band_end - band_start, 20, "未渲染出点评区块")
+
+        # 点评块是最后一个区块，应紧贴图片底部
+        self.assertGreater(band_end, h - 40, "点评区块未落在图片底部")
+
+        # 点评块上方必须有表格填充色 → 证明确实是「表格在上、点评在下」
+        above = [
+            y
+            for y in range(0, band_start)
+            if self._near(px[w - 40, y], tk["panel"], 6)
+            or self._near(px[w - 40, y], tk["panel2"], 6)
+        ]
+        self.assertTrue(above, "点评区块上方未找到表格填充色，版式顺序异常")
+        self.assertGreater(band_start, max(above), "点评块与表格重叠")
 
 
 class TestNetworkProductGuards(unittest.TestCase):

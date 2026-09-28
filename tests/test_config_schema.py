@@ -196,8 +196,11 @@ class TestThemeReachesBothRenderPaths(unittest.TestCase):
             ir.render_text_to_image(md, out, theme={"accent": "垃圾值", "analysis_bg": "#zzz"})
             with Image.open(out) as im:
                 img = im.convert("RGB")
-            # 退回默认深蓝，而不是崩溃或黑色
-            self.assertEqual(img.getpixel((img.width // 2, 1)), ir._ACCENT)
+            # 退回主题默认 accent，而不是崩溃或黑色
+            self.assertEqual(
+                img.getpixel((img.width // 2, 1)),
+                ir._match_tokens({})["accent"],
+            )
 
 
 class TestIconPreheatBudget(unittest.TestCase):

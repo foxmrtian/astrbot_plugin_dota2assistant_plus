@@ -1130,15 +1130,18 @@ class TestImageOutputSwitch(unittest.TestCase):
         self.assertIn('"enable_image_output", True', src)
 
     def test_hook_branches_to_text_when_disabled(self):
-        """关掉图片后出图函数要退化为纯文本发送。"""
+        """关掉图片后出图函数要退化为纯文本发送。
+
+        重构后职责拆分：开关判断在 ``_render_card_image``，纯文本兜底在
+        ``_emit_image``（``_send_card`` 只是两者的组合）。
+        """
         import inspect
 
         from astrbot_plugin_dota2assistant_plus import main
 
-        # 重构后「按开关决定发图还是发文」的逻辑收敛在 _send_card 里
-        src = inspect.getsource(main.Dota2AssistantPlugin._send_card)
-        self.assertIn("enable_image_output", src)
-        self.assertIn("plain_result", src)
+        plugin = main.Dota2AssistantPlugin
+        self.assertIn("enable_image_output", inspect.getsource(plugin._render_card_image))
+        self.assertIn("plain_result", inspect.getsource(plugin._emit_image))
 
     def test_slash_command_follows_switch(self):
         """关掉图片后 /dota 也要默认走文本，否则用户会以为配置没生效。"""

@@ -1,9 +1,20 @@
 {
+  "card_hook_budget": {
+    "description": "卡片发送的钩子等待上限（秒）",
+    "type": "float",
+    "default": 8.0,
+    "hint": "插件把「写点评 + 渲染出图」放在发送前的钩子里等待。等待超过这个秒数就改由后台主动推送卡片——后者不依赖本轮事件，因此钩子超时、事件被提前关闭也照样送达。实测 GLM-4-Flash 写点评只要 2~3 秒，默认 8 秒足够；调大只是让慢的情况下多等一会儿，调小则更早转后台推送。"
+  },
   "card_theme_preset": {
     "description": "卡片主题",
     "type": "string",
     "default": "light",
-    "options": ["light", "dark-gold", "pink", "navy-gold"],
+    "options": [
+      "light",
+      "dark-gold",
+      "pink",
+      "navy-gold"
+    ],
     "hint": "四套预设主题，选一个即可：light＝蓝白（白底 + 蓝强调，默认）；dark-gold＝深色暗金（近黑暖调底 + 暗金强调，沉稳电竞感）；pink＝手绘可爱风（粉底 + 玫红强调，圆润可爱字体 + 手绘边框/波点底纹/四角小装饰）；navy-gold＝深蓝暗金（深蓝底 #0a1942 + 暗金标题、正文白色）。不开放逐色自定义，保证整张卡片风格统一。"
   },
   "default_language": {

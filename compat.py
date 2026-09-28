@@ -97,3 +97,21 @@ except Exception:
         if default_factory is not None:
             return stdlib_field(default_factory=default_factory)
         return stdlib_field(default=default)
+
+
+# ---------------------------------------------------------------- 主动推送
+#
+# ``context.send_message`` 需要一条 MessageChain。不同 AstrBot 版本的模块
+# 路径不同（4.28 在 ``message_event_result``，更早的在 ``message_chain``），
+# 因此这里做一次兼容解析。
+#
+# 注意：早先 main.py 里写死了 ``astrbot.core.message.message_chain``，在
+# 4.28 上直接 ImportError —— 补发卡片的后台任务每次都挂在这里，
+# 表现就是「图渲染好了却发不出去」，且日志只有一行 error。
+try:
+    from astrbot.core.message.message_event_result import MessageChain
+except Exception:  # pragma: no cover - 取决于 AstrBot 版本
+    try:
+        from astrbot.core.message.message_chain import MessageChain  # type: ignore
+    except Exception:
+        MessageChain = None  # type: ignore[assignment]

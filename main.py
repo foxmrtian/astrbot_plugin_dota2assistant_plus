@@ -27,6 +27,13 @@ from .tools.delivery import pop_cards, pop_focus_hero  # noqa: E402
 # 从比赛卡片首行解析 match_id：``# 比赛详情 #8831125663`` → 8831125663
 _MATCH_ID_RE = re.compile(r"^#\s*比赛详情\s+#(\d+)", re.M)
 
+# on_decorating_result 钩子里等待卡片生成的上限（秒）。
+#
+# 钩子同步等待过久会超时、事件被提前关闭，`set_result` 随之失效 —— 图渲染好了
+# 却发不出去。实测 GLM-4-Flash 写一段点评只要 2~3 秒，因此 8 秒足够覆盖正常
+# 情况；真正的慢（模型卡住/录像总结）则交给后台 `send_message` 主动推送。
+_CARD_HOOK_BUDGET = 8.0
+
 # 文本转图片渲染器（参考 outputpro 插件 T2IStep）
 try:
     from astrbot.core.message.components import Image, Plain
@@ -68,6 +75,17 @@ class Dota2AssistantPlugin(Star):
         # 解析轮询总时长上限（秒）。OpenDota 官方说数分钟、实测常见 5~10 分钟，
         # 默认 720 秒留足余量；超时则放弃点评、只发对战卡片。
         self.replay_parse_timeout = int(plugin_config.get("replay_parse_timeout", 720))
+
+        # on_decorating_result 钩子里等待卡片生成的上限（秒）。
+        #
+        # 钩子同步等待过久会超时、本轮事件被提前关闭，set_result 随之失效
+        # —— 「图渲染好了却发不出去」就是这个原因。窗口内完成走 set_result
+        # （单条消息，体验最好）；超时则转到后台用 send_message 主动推送，
+        # 不依赖本轮事件生命周期，因此必定送达。实测 GLM-4-Flash 写点评只要
+        # 2~3 秒，默认 8 秒足够；调大只会让慢的情况下多等一会儿。
+        self.card_hook_budget = float(
+            plugin_config.get("card_hook_budget", _CARD_HOOK_BUDGET)
+        )
 
         # 图片输出开关。默认开启（保持原有行为）；关闭后不再渲染卡片图片，
         # 直接把 Markdown 文本发出去 —— 有些平台/用户更需要可复制、可搜索的
@@ -182,7 +200,7 @@ class Dota2AssistantPlugin(Star):
             match_id = self._card_match_id(cards) if any(is_match_card(c) for c in cards) else 0
 
             # ── 具体某一局：用录像解析数据写赛后总结（异步，约数分钟）──
-            # 已解析：同步拿录像数据→生成总结→出图（一条消息，含点评）。
+            # 已解析：生成总结→出图（一条消息，含点评）。
             # 未解析：本轮先发「录像正在解析中」提示，起后台任务在解析完成后
             #         把对战数据+点评合成一张卡补发（对战与点评始终同一张卡）。
             if match_id and getattr(self, "enable_replay_summary", True):
@@ -192,36 +210,10 @@ class Dota2AssistantPlugin(Star):
                     return
                 # handled=False 表示录像总结被关闭/不可用，退回原有一段式流程
 
-            # 1) 优先：插件自己调本机默认大模型写赛后总结
-            analysis = ""
-            source = ""
-            try:
-                from .core.summarizer import summarize
-
-                focus_hero = pop_focus_hero(event) if event is not None else ""
-                analysis = await summarize(self, cards, event, focus_hero=focus_hero)
-                if analysis:
-                    source = "模型生成"
-            except Exception as exc:
-                logger.error(f"Dota2 赛后总结生成异常: {exc}")
-
-            # 2) 兜底：模型不可用/超时时，用 Agent 本轮的回复文字
-            if not analysis:
-                analysis = self._extract_analysis(event)
-                if analysis:
-                    source = "Agent 回复"
-                    try:
-                        from .core.summarizer import format_analysis
-
-                        analysis = format_analysis(
-                            analysis, cards,
-                            max_chars=getattr(self, "summary_max_chars", 500),
-                            kind=detect_kind(cards),
-                        )
-                    except Exception as exc:
-                        logger.warning(f"Dota2 Agent 回复整理失败，按原文输出: {exc}")
-
-            await self._send_card(event, cards, analysis, source)
+            focus_hero = pop_focus_hero(event) if event is not None else ""
+            await self._deliver_with_budget(
+                event, lambda: self._produce_cards(event, cards, focus_hero)
+            )
         except Exception:
             await self._emit_feedback(event, success=False)
             raise
@@ -259,16 +251,20 @@ class Dota2AssistantPlugin(Star):
             return False
 
         if match.parsed:
-            # 已解析：同步用录像数据生成总结并出图（对战+点评同一张卡）。
-            analysis = await self._replay_analysis(match, cards, event, focus_hero)
-            await self._send_card(event, cards, analysis, "录像解析")
+            # 已解析：用录像数据生成总结并出图（对战+点评同一张卡）。
+            # 与其它卡片走同一条「有界等待 + 超时转后台推送」的投递路径，
+            # 避免录像总结偏慢时把钩子拖到超时、卡片发不出去。
+            async def _produce():
+                analysis = await self._replay_analysis(match, cards, event, focus_hero)
+                image_path, markdown = await self._render_card_image(cards, analysis)
+                return image_path, markdown, analysis, "录像解析"
+
+            await self._deliver_with_budget(event, _produce)
             return True
 
         # 未解析：本轮先发提示，后台解析完成后补发完整卡片。
         await self._send_text(event, f"比赛 #{match_id} 录像正在解析中，请稍候…")
-        asyncio.create_task(
-            self._run_replay_summary(event, match_id, cards, focus_hero)
-        )
+        self._spawn(self._run_replay_summary(event, match_id, cards, focus_hero))
         return True
 
     async def _replay_analysis(self, match, cards, event, focus_hero: str) -> str:
@@ -319,19 +315,16 @@ class Dota2AssistantPlugin(Star):
         ``followup=True``：作为后台任务的后续消息，主动推到原会话
         （``Context.send_message`` + ``unified_msg_origin``）。
         """
+        image_path, markdown = await self._render_card_image(cards, analysis)
+        await self._emit_image(event, image_path, markdown, followup=followup)
+
+    async def _render_card_image(self, cards: list[str], analysis: str):
+        """合成 Markdown 并渲染成图片；返回 ``(图片路径或 None, Markdown)``。"""
         markdown = self._compose_card_markdown(cards, analysis)
 
         if not getattr(self, "enable_image_output", True) or Image is None:
-            text = markdown if getattr(self, "enable_image_output", True) else markdown_to_plain(markdown)
-            if followup:
-                await self._push_text(event, markdown_to_plain(markdown))
-            else:
-                payload = markdown if getattr(self, "enable_image_output", True) else markdown_to_plain(markdown)
-                event.set_result(event.plain_result(payload))
-                await self._emit_feedback(event, success=True)
-            return
+            return None, markdown
 
-        image_path = None
         try:
             from .core.card_renderer import render_card
 
@@ -341,9 +334,16 @@ class Dota2AssistantPlugin(Star):
             )
         except Exception as exc:
             logger.error(f"Dota2 卡片渲染异常: {exc}")
+            image_path = None
 
         if not image_path:
             logger.warning("Dota2 卡片渲染失败，降级为文本输出。")
+        return image_path, markdown
+
+    async def _emit_image(self, event, image_path, markdown: str,
+                          followup: bool = False) -> None:
+        """把渲染结果送出：本轮回复（``set_result``）或后台推送。"""
+        if not image_path:
             if followup:
                 await self._push_text(event, markdown_to_plain(markdown))
             else:
@@ -364,34 +364,172 @@ class Dota2AssistantPlugin(Star):
             event.set_result(event.chain_result([Image.fromFileSystem(str(image_path))]))
             await self._emit_feedback(event, success=True)
 
-    async def _push_image(self, event, image_path: str) -> None:
-        """后台任务：把图片主动推到原会话。"""
+    async def _write_analysis(self, event, cards: list[str], focus_hero: str):
+        """生成赛后点评；返回 ``(点评文本, 来源)``。"""
+        analysis = ""
+        source = ""
+        # 1) 优先：插件自己调配置的大模型写赛后总结
         try:
-            from astrbot.core.message.components import Image as _Img
-            from astrbot.core.message.message_chain import MessageChain
+            from .core.summarizer import summarize
 
-            chain = MessageChain([_Img.fromFileSystem(image_path)])
+            analysis = await summarize(self, cards, event, focus_hero=focus_hero)
+            if analysis:
+                source = "模型生成"
+        except Exception as exc:
+            logger.error(f"Dota2 赛后总结生成异常: {exc}")
+
+        # 2) 兜底：模型不可用/超时时，用 Agent 本轮的回复文字
+        if not analysis:
+            analysis = self._extract_analysis(event)
+            if analysis:
+                source = "Agent 回复"
+                try:
+                    from .core.summarizer import format_analysis
+
+                    analysis = format_analysis(
+                        analysis, cards,
+                        max_chars=getattr(self, "summary_max_chars", 500),
+                        kind=detect_kind(cards),
+                    )
+                except Exception as exc:
+                    logger.warning(f"Dota2 Agent 回复整理失败，按原文输出: {exc}")
+        return analysis, source
+
+    async def _produce_cards(self, event, cards: list[str], focus_hero: str):
+        """「写点评 + 出图」的完整产物；返回 ``(图片路径, Markdown, 点评, 来源)``。"""
+        analysis, source = await self._write_analysis(event, cards, focus_hero)
+        image_path, markdown = await self._render_card_image(cards, analysis)
+        return image_path, markdown, analysis, source
+
+    async def _deliver_with_budget(self, event, producer) -> None:
+        """在钩子里**有界等待**卡片生成，超时则转后台主动推送。
+
+        这是「卡片经常发不出去」的根治点。``on_decorating_result`` 钩子若长时间
+        同步等待（调模型写点评 + 渲染动辄数秒到数分钟），钩子会超时、本轮事件被
+        提前关闭，此时 ``set_result`` 静默失效 —— 图片明明渲染好了却发不出去。
+
+        因此钩子只等 ``card_hook_budget`` 秒：
+
+        * 窗口内完成 → 照旧 ``set_result``（单条消息，体验最好）；
+        * 超时 → 立刻让出钩子，改由后台任务 ``context.send_message`` 主动推送。
+          后者不依赖本轮事件的生命周期，事件被关闭也照样送达。
+        """
+        budget = float(getattr(self, "card_hook_budget", _CARD_HOOK_BUDGET))
+        task = self._spawn(producer())
+        try:
+            image_path, markdown, _analysis, _source = await asyncio.wait_for(
+                asyncio.shield(task), timeout=budget,
+            )
+        except asyncio.TimeoutError:
+            logger.info(
+                f"Dota2 卡片生成超过 {budget:.0f}s 钩子预算，转为后台主动推送。"
+            )
+            # shield 保证 task 未被取消，后台继续跑完并推送
+            self._spawn(self._push_generated(event, task))
+            self._clear_result(event)
+            return
+        except Exception as exc:
+            logger.error(f"Dota2 卡片生成失败: {exc}")
+            event.set_result(event.plain_result("卡片生成失败，请稍后再试。"))
+            await self._emit_feedback(event, success=False)
+            return
+
+        await self._emit_image(event, image_path, markdown, followup=False)
+
+    async def _push_generated(self, event, task) -> None:
+        """后台等待卡片生成完成，再主动推送到原会话（绕开事件生命周期）。"""
+        try:
+            image_path, markdown, _analysis, _source = await task
+        except Exception as exc:
+            logger.error(f"Dota2 后台卡片生成异常: {exc}")
+            await self._push_text(event, "卡片生成失败，请稍后再试。")
+            return
+        if image_path:
+            if not await self._push_image(event, str(image_path)):
+                logger.error("Dota2 后台推送卡片失败，本轮卡片可能未送达。")
+        else:
+            await self._push_text(event, markdown_to_plain(markdown))
+
+    @staticmethod
+    def _clear_result(event) -> None:
+        """清空本轮结果，避免占位文本与卡片重复（空链＝不发消息）。"""
+        try:
+            event.set_result(event.chain_result([]))
+        except Exception:
+            pass
+
+    def _spawn(self, coro) -> "asyncio.Future":
+        """创建后台任务并**保留强引用**。
+
+        asyncio 的事件循环只对任务持弱引用：``create_task`` / ``ensure_future``
+        的返回值若没人接手，任务可能在跑完前被 GC 回收 —— 表现就是「后台补发
+        偶发不执行」。这里统一登记到一个集合，完成后自动移除。
+        """
+        task = asyncio.ensure_future(coro)
+        tasks = getattr(self, "_bg_tasks", None)
+        if tasks is None:
+            tasks = set()
+            self._bg_tasks = tasks
+        tasks.add(task)
+        task.add_done_callback(tasks.discard)
+        return task
+
+    async def _push_image(self, event, image_path: str) -> bool:
+        """后台任务：把图片主动推到原会话；返回是否推送成功。
+
+        ``context.send_message`` 不依赖本轮事件的 ``set_result``，因此即使
+        ``on_decorating_result`` 钩子超时、事件被提前关闭，卡片仍能送达。
+        """
+        ok = False
+        try:
+            from .compat import MessageChain
+
+            if MessageChain is None:
+                logger.error("Dota2 补发卡片失败：当前 AstrBot 未提供 MessageChain。")
+                return False
+            if Image is None:
+                logger.error("Dota2 补发卡片失败：消息组件 Image 不可用。")
+                return False
+            chain = MessageChain([Image.fromFileSystem(image_path)])
             ok = await self.context.send_message(event.unified_msg_origin, chain)
-            if ok:
-                await self._emit_feedback(event, success=True)
-            else:
+            if not ok:
                 logger.warning("Dota2 补发卡片失败：未找到匹配的消息平台。")
         except Exception as exc:
             logger.error(f"Dota2 补发卡片图片异常: {exc}")
+            return False
 
-    async def _push_text(self, event, text: str) -> None:
-        """后台任务：把文本主动推到原会话。"""
+        # 表情反馈放在主 try 之外、且自带兜底：它失败不能把「推送成功」判成失败，
+        # 也不能把异常抛给后台任务（那会变成「Task exception was never retrieved」）
+        if ok:
+            try:
+                await self._emit_feedback(event, success=True)
+            except Exception as exc:
+                logger.debug(f"Dota2 推送后表情反馈失败: {exc}")
+        return bool(ok)
+
+    async def _push_text(self, event, text: str) -> bool:
+        """后台任务：把文本主动推到原会话；返回是否推送成功。"""
+        ok = False
         try:
-            from astrbot.core.message.message_chain import MessageChain
+            from .compat import MessageChain
 
+            if MessageChain is None:
+                logger.error("Dota2 补发文本失败：当前 AstrBot 未提供 MessageChain。")
+                return False
             chain = MessageChain().message(text)
             ok = await self.context.send_message(event.unified_msg_origin, chain)
-            if ok:
-                await self._emit_feedback(event, success=True)
-            else:
+            if not ok:
                 logger.warning("Dota2 补发文本失败：未找到匹配的消息平台。")
         except Exception as exc:
             logger.error(f"Dota2 补发文本异常: {exc}")
+            return False
+
+        if ok:
+            try:
+                await self._emit_feedback(event, success=True)
+            except Exception as exc:
+                logger.debug(f"Dota2 推送后表情反馈失败: {exc}")
+        return bool(ok)
 
     async def _emit_feedback(self, event: AstrMessageEvent, success: bool) -> None:
         """发送表情反馈；失败只记日志，不能影响主流程。"""
@@ -648,9 +786,7 @@ class Dota2AssistantPlugin(Star):
                         yield res
                 else:
                     yield event.plain_result(f"比赛 #{match_id} 录像正在解析中，请稍候…")
-                    asyncio.create_task(
-                        self._run_replay_summary(event, match_id, cards, "")
-                    )
+                    self._spawn(self._run_replay_summary(event, match_id, cards, ""))
                 return
 
             if use_image:

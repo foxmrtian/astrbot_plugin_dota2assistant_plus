@@ -1040,8 +1040,20 @@ def _draw_player(img: "Image.Image", draw: ImageDraw.ImageDraw, item: dict,
 
 
 def _draw_table(img_w: int, padding: int, draw: ImageDraw.ImageDraw, item: dict,
-                y: int, fonts, body_size: int, text_color: tuple) -> int:
-    """绘制表格，返回新的 y。"""
+                y: int, fonts, body_size: int, text_color: tuple,
+                tokens: Optional[dict] = None) -> int:
+    """绘制表格，返回新的 y。
+
+    ``tokens`` 是主题令牌（见 ``_match_tokens``）：表头底、斑马纹、次要文字、
+    胜负色都从这里取，保证深色主题下表格不出现「白底黑字」的割裂感。
+    """
+    tk = tokens or {}
+    panel = tk.get("panel", _PANEL)
+    zebra = tk.get("panel2", _ZEBRA)
+    muted = tk.get("muted", _MUTED)
+    win = tk.get("win", _WIN)
+    lose = tk.get("lose", _LOSE)
+
     ncols = item["ncols"]
     widths = item["widths"]
     fs = fonts(body_size)
@@ -1054,22 +1066,22 @@ def _draw_table(img_w: int, padding: int, draw: ImageDraw.ImageDraw, item: dict,
         cx += int(widths[c] * body_size * 0.56) + col_gap
 
     if item["header"]:
-        draw.rectangle([padding - 6, y, img_w - padding + 6, y + row_h], fill=_PANEL)
+        draw.rectangle([padding - 6, y, img_w - padding + 6, y + row_h], fill=panel)
         for c, cell in enumerate(item["header"]):
             if c < ncols:
-                _draw_mixed(draw, xs[c], y + 6, cell, fs, _MUTED)
+                _draw_mixed(draw, xs[c], y + 6, cell, fs, muted)
         y += row_h
     for r_i, row in enumerate(item["rows"]):
         if r_i % 2 == 1:
-            draw.rectangle([padding - 6, y, img_w - padding + 6, y + row_h], fill=_ZEBRA)
+            draw.rectangle([padding - 6, y, img_w - padding + 6, y + row_h], fill=zebra)
         for c, cell in enumerate(row):
             if c >= ncols:
                 continue
             color = text_color
             if cell.strip() == "✅":
-                color = _WIN
+                color = win
             elif cell.strip() == "❌":
-                color = _LOSE
+                color = lose
             _draw_mixed(draw, xs[c], y + 6, cell, fs, color)
         y += row_h
     return y + 12
@@ -1110,17 +1122,32 @@ def render_text_to_image(
 
     body_size = max(12, int(font_size))
     _theme = theme or {}
-    _analysis_bg = _hex_to_rgb(_theme.get("analysis_bg")) or _ANALYSIS_BG
-    _analysis_line = _hex_to_rgb(_theme.get("analysis_line")) or _ANALYSIS_LINE
+    # 通用卡片同样吃**完整主题令牌**（bg/panel/ink/line/...），不再只有单场
+    # 战报卡换肤：此前这里只读 accent/analysis_*，于是深色或粉色主题下
+    # 战绩/英雄/物品等卡片仍是白底黑字，与战报卡风格割裂。
+    tk = _match_tokens(theme)
+    cute = tk.get("style") == "handdrawn"
+    # 显式传参优先：调用方没覆盖 bg/text 时才用主题色
+    if bg_color == _BG:
+        bg_color = tk["bg"]
+    if text_color == _INK2:
+        text_color = tk["ink2"]
+    _analysis_bg = tk["analysis_bg"]
+    _analysis_line = tk["analysis_line"]
     # accent 覆盖卡片主色：顶栏/波浪线/分栏目标题/粗体字全用它。
-    _accent = _hex_to_rgb(_theme.get("accent")) or _ACCENT
+    _accent = tk["accent"]
     title_size = int(round(body_size * _TITLE_SCALE))
     fonts_by_size: dict[int, FontSet] = {}
 
     def fonts(size: int) -> FontSet:
         if size not in fonts_by_size:
-            fonts_by_size[size] = FontSet(size)
+            fonts_by_size[size] = FontSet(size, cute=cute)
         return fonts_by_size[size]
+
+    # 手绘可爱风（pink）：加内边距给手绘边框留位置，和战报卡同一套装饰
+    hd_pad = 22 if cute else 0
+    if hd_pad:
+        padding += hd_pad
 
     # ---------------- 解析：收集需要绘制的“行对象” ----------------
     lines: list[dict] = []
@@ -1323,8 +1350,14 @@ def render_text_to_image(
 
     # 底部波浪装饰纹占用高度（与 assets/card.html 的网络路径保持一致）
     total_h = padding + sum(item["h"] for item in lines) + padding
-    img = Image.new("RGB", (img_w, max(80, total_h)), bg_color)
+    if cute:
+        total_h += 12  # 手绘边框底部留一点呼吸
+    canvas_h = max(80, total_h)
+    img = Image.new("RGB", (img_w, canvas_h), bg_color)
     draw = ImageDraw.Draw(img)
+
+    if cute:
+        _draw_handdrawn_bg(draw, tk, img_w, canvas_h)
 
     # ---------------- 第二遍：先铺区块背景，再绘制文字 ----------------
     analysis_start: Optional[int] = None
@@ -1338,19 +1371,27 @@ def render_text_to_image(
         cursor += item["h"]
 
     if analysis_start is not None and analysis_end is not None:
-        draw.rectangle(
-            [padding - 12, analysis_start, img_w - padding + 12, analysis_end],
-            fill=_analysis_bg,
-            outline=_analysis_line,
-        )
+        if cute:
+            # 贴纸感：大圆角面板 + 白色描边，和战报卡一致
+            draw.rounded_rectangle(
+                [padding - 12, analysis_start, img_w - padding + 12, analysis_end],
+                radius=18, fill=_analysis_bg, outline=(255, 255, 255), width=3,
+            )
+        else:
+            draw.rectangle(
+                [padding - 12, analysis_start, img_w - padding + 12, analysis_end],
+                fill=_analysis_bg,
+                outline=_analysis_line,
+            )
         # 左侧色条，让末尾区块一眼可辨
         draw.rectangle(
             [padding - 12, analysis_start, padding - 8, analysis_end],
             fill=_accent,
         )
 
-    # 顶部强调条
-    draw.rectangle([0, 0, img_w, 3], fill=_accent)
+    # 顶部强调条（手绘风下改由圆角边框承担，避免压住边框）
+    if not cute:
+        draw.rectangle([0, 0, img_w, 3], fill=_accent)
 
     y = padding
     for item in lines:
@@ -1366,7 +1407,7 @@ def render_text_to_image(
             # 标题下的分隔线
             draw.line(
                 [padding, y + fs.height() + 2, img_w - padding, y + fs.height() + 2],
-                fill=_LINE,
+                fill=tk["line"],
                 width=2,
             )
 
@@ -1380,10 +1421,10 @@ def render_text_to_image(
             _draw_mixed(draw, padding + 12, y, item["text"], fs, color)
 
         elif kind == "hr":
-            draw.line([padding, y + 10, img_w - padding, y + 10], fill=_LINE, width=2)
+            draw.line([padding, y + 10, img_w - padding, y + 10], fill=tk["line"], width=2)
 
         elif kind == "table":
-            y = _draw_table(img_w, padding, draw, item, y, fonts, body_size, text_color)
+            y = _draw_table(img_w, padding, draw, item, y, fonts, body_size, text_color, tk)
             continue
 
         elif kind == "player":
@@ -1411,7 +1452,7 @@ def render_text_to_image(
             # `.analysis-body strong{font-size:inherit}`）。传 fs 作为 bold_fs
             # 即「用同一字号描边」，避免同一段里字号忽大忽小。
             bold_fs = fs if is_analysis else fonts(int(size * _ANALYSIS_BOLD_SCALE))
-            color = _ANALYSIS_INK if is_analysis else text_color
+            color = text_color
             for visual, vmask in item.get("wrapped_masked") or [(v, []) for v in item["wrapped"]]:
                 _draw_masked(draw, padding + 6, y, visual, vmask, fs, color, bold_fs)
                 y += seg_h(size)
@@ -1422,13 +1463,17 @@ def render_text_to_image(
             fs = fonts(size)
             # 同 li：分析块内只加粗不放大，两条路径（网络/本地）字号才一致
             bold_fs = fs if is_analysis else fonts(int(size * _ANALYSIS_BOLD_SCALE))
-            color = _ANALYSIS_INK if is_analysis else text_color
+            color = text_color
             for visual, vmask in item.get("wrapped_masked") or [(v, []) for v in item["wrapped"]]:
                 _draw_masked(draw, padding, y, visual, vmask, fs, color, bold_fs)
                 y += seg_h(size)
             continue
 
         y += item["h"]
+
+    if cute:
+        _draw_handdrawn_frame(draw, tk, img_w, canvas_h)
+        _draw_cute_corners(draw, tk, img_w, canvas_h)
 
     out_dir = os.path.dirname(str(output_path))
     if out_dir:
@@ -1522,6 +1567,9 @@ def _match_tokens(theme) -> dict:
         "gold": g("gold", _M_GOLD),
         "accent": g("accent", _M_ACCENT),
         "plate": g("plate", _M_PLATE),
+        # 通用卡片（战绩/英雄/物品等）的点评区块底色与描边
+        "analysis_bg": g("analysis_bg", _ANALYSIS_BG),
+        "analysis_line": g("analysis_line", _ANALYSIS_LINE),
     }
 
 
