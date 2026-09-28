@@ -298,5 +298,98 @@ class TestRenderCardAcceptsTheme(unittest.TestCase):
         )
 
 
+class TestPinkHanddrawnTheme(unittest.TestCase):
+    """pink 主题的手绘可爱风：标记、字体、装饰都要到位。"""
+
+    def test_pink_preset_carries_handdrawn_style(self):
+        from astrbot_plugin_dota2assistant_plus.core.card_renderer import (
+            resolve_preset,
+        )
+
+        self.assertEqual(resolve_preset("pink").get("style"), "handdrawn")
+        # 其余主题不应该是手绘风
+        for name in ("light", "dark-gold", "navy-gold"):
+            with self.subTest(name=name):
+                self.assertNotEqual(resolve_preset(name).get("style"), "handdrawn")
+
+    def test_bundled_cute_font_present(self):
+        from pathlib import Path
+
+        root = Path(__file__).resolve().parent.parent
+        font = root / "assets" / "fonts" / "zcool-kuaile.ttf"
+        self.assertTrue(font.exists(), "手绘可爱字体未随插件打包")
+        # 真是 TTF（magic 00010000），不是错误页
+        self.assertEqual(font.read_bytes()[:4], b"\x00\x01\x00\x00")
+
+    def test_cute_font_is_selected_in_handdrawn_mode(self):
+        from astrbot_plugin_dota2assistant_plus.core import image_renderer as ir
+
+        path = ir._cute_font_path()
+        if not path:
+            self.skipTest("环境中无可爱字体，跳过")
+        cute = ir.FontSet(24, cute=True)
+        # 常用汉字应命中可爱字体
+        self.assertIn("KuaiLe", cute.pick("中").getname()[0])
+        # 非手绘模式不应使用可爱字体
+        normal = ir.FontSet(24, cute=False)
+        self.assertNotIn("KuaiLe", normal.pick("中").getname()[0])
+
+    def test_network_template_marks_handdrawn_body(self):
+        """网络 t2i 模板也要给 pink 打上 handdrawn 标记（兜底路径同样可爱）。"""
+        import re
+
+        from astrbot_plugin_dota2assistant_plus.core import card_renderer as cr
+
+        pink = cr._template(cr.resolve_preset("pink"))
+        self.assertRegex(pink, r'<body class="handdrawn"')
+        # 其它主题不得被标记
+        for name in ("light", "dark-gold", "navy-gold"):
+            with self.subTest(name=name):
+                html = cr._template(cr.resolve_preset(name))
+                self.assertRegex(html, r"<body>")
+
+    def test_render_pink_draws_frame_and_dots(self):
+        """粉卡必须在边缘画出 accent 外框，且不与浅色主题雷同。"""
+        import asyncio
+        import tempfile
+        from pathlib import Path
+
+        from PIL import Image
+
+        from astrbot_plugin_dota2assistant_plus.core import card_renderer as cr
+        from astrbot_plugin_dota2assistant_plus.core import image_renderer as ir
+
+        md = (
+            "# 比赛详情 #123\n\n## 天辉 获胜 · 击杀 41\n\n"
+            "### ![敌法师](http://x/a.png) Lv.25 · 甲 · 12/6/12\n"
+            "金钱 18.6k｜GPM 631\n\n"
+            "## 综合分析\n\n### 比赛进程\n\n前期中期后期的局势变化说明。\n"
+        )
+        with tempfile.TemporaryDirectory() as td:
+            pink_path = str(Path(td) / "pink.png")
+            light_path = str(Path(td) / "light.png")
+            ir.render_match_card(md, pink_path, theme=cr.resolve_preset("pink"))
+            ir.render_match_card(md, light_path, theme=cr.resolve_preset("light"))
+
+            pink = Image.open(pink_path).convert("RGB")
+            light = Image.open(light_path).convert("RGB")
+            pw, ph = pink.size
+            pp = pink.load()
+            lp = light.load()
+
+            accent = (229, 83, 138)  # pink 的 accent #e5538a
+
+            def has_accent(px, w, h):
+                for x in range(0, 26):
+                    if all(abs(px[x, h // 2][i] - accent[i]) <= 12 for i in range(3)):
+                        return True
+                return False
+
+            self.assertTrue(has_accent(pp, pw, ph), "粉卡左边缘应有 accent 外框")
+            self.assertFalse(has_accent(lp, *light.size), "浅色主题不应有粉色外框")
+            # 手绘风多出的边距会让粉卡更高
+            self.assertGreater(ph, light.size[1])
+
+
 if __name__ == "__main__":
     unittest.main()

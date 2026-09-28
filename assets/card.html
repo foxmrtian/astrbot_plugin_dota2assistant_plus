@@ -402,6 +402,43 @@
     border-radius:0 0 8px 0;
     padding-bottom:12px;
   }
+
+  /* ---- 手绘可爱风（pink 主题；body.handdrawn 时生效）----
+     与本地 Pillow 渲染保持同一套语言：圆润描边框 + 波点底纹 + 四角小装饰。
+     网络端点未必装得下可爱字体，这里只列字体名作最优尝试，缺失时优雅降级。 */
+  body.handdrawn{
+    font-family:"ZCOOL KuaiLe","站酷快乐体","MiSans","Noto Sans CJK SC",
+                "Microsoft YaHei","PingFang SC",sans-serif;
+  }
+  body.handdrawn .card{
+    position:relative;
+    margin:16px;
+    border:3px solid var(--accent);
+    border-top:3px solid var(--accent);
+    border-radius:28px;
+    box-shadow:0 0 0 7px var(--bg), 0 0 0 8px var(--line);
+    background-color:var(--panel);
+    background-image:radial-gradient(var(--line) 1.5px, transparent 1.6px);
+    background-size:46px 46px;
+  }
+  body.handdrawn .card::before{
+    content:"\1F497";
+    position:absolute;top:8px;left:14px;font-size:20px;line-height:1;
+  }
+  body.handdrawn .card::after{
+    content:"\2B50";
+    position:absolute;top:8px;right:14px;font-size:20px;line-height:1;
+  }
+  body.handdrawn #content h1,
+  body.handdrawn #content h2,
+  body.handdrawn .banner-name{
+    letter-spacing:.02em;
+  }
+  body.handdrawn #content>.analysis-body,
+  body.handdrawn .team-band,
+  body.handdrawn .player-row{
+    border-radius:18px;
+  }
 </style>
 </head>
 <body>

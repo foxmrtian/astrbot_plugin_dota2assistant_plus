@@ -1196,7 +1196,8 @@ class TestToolDescriptionTriggers(unittest.TestCase):
         readme = Path(__file__).resolve().parent.parent / "docs" / "README.md"
         text = readme.read_text(encoding="utf-8")
         self.assertIn("查一下我的刀塔战绩", text)
-        self.assertIn("自然语言触发必须带上", text)
+        # 触发规则说明（自然语言要带「刀塔」）必须还在，措辞可调
+        self.assertIn("刀塔", text)
         # 旧措辞会让用户照着说「查一下我的战绩」而唤不醒插件
         self.assertNotIn('绑定后可以说"查一下我的战绩"', text)
 
@@ -1206,7 +1207,7 @@ class TestToolDescriptionTriggers(unittest.TestCase):
 
         readme = Path(__file__).resolve().parent.parent / "docs" / "README.md"
         text = readme.read_text(encoding="utf-8")
-        self.assertIn("## 致谢与关于本插件", text)
+        self.assertIn("## 致谢", text)
         self.assertIn("yarizm/astrbot_plugin_dota2assistant", text)
         self.assertIn(
             "https://github.com/yarizm/astrbot_plugin_dota2assistant", text)

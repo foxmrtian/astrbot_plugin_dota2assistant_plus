@@ -490,6 +490,27 @@ def _shrink_text(text: str, max_chars: int) -> str:
     return cut.rstrip("，,、") + "…"
 
 
+def _shrink_section_bodies(bodies: list[str], budget: int) -> list[str]:
+    """把各栏正文整体压进 ``budget`` 总字数，返回等长的新正文列表。
+
+    录像复盘的四栏篇幅需受控。策略：总和不超就直接返回；超了先按
+    「等比压缩」给每栏一个目标字数，再逐栏按句末收缩到各自目标，
+    保证四栏结构都还在（不像 ``_shrink_text`` 那样一刀切掉末尾整栏）。
+    """
+    total = sum(len(b) for b in bodies)
+    if not budget or total <= budget:
+        return bodies
+    out: list[str] = []
+    for b in bodies:
+        if not b:
+            out.append(b)
+            continue
+        # 等比分配，但每栏至少留 30 字，避免某栏被压没
+        target = max(30, round(budget * len(b) / total))
+        out.append(_shrink_text(b, target))
+    return out
+
+
 def _fit_sections(sections: list[tuple[str, str]], max_chars: int,
                   ) -> list[tuple[str, str]]:
     """在 ``max_chars`` 总额度内精简各栏目。
@@ -793,6 +814,111 @@ def _pct(value) -> int:
         return 0
 
 
+# 复盘「关键物品成型时点」时关注的大件（内部名 → 中文名）。
+# 只列有战略意义、能改变局势的成型装；消耗品与廉价散件不讲。
+_KEY_ITEMS: dict[str, str] = {
+    "black_king_bar": "黑皇杖",
+    "radiance": "辉耀",
+    "battle_fury": "狂战斧",
+    "divine_rapier": "圣剑",
+    "daedalus": "代达罗斯之殇",
+    "monkey_king_bar": "金箍棒",
+    "butterfly": "蝴蝶",
+    "satanic": "撒旦之邪力",
+    "heart": "恐鳌之心",
+    "assault": "强袭胸甲",
+    "shivas_guard": "希瓦的守护",
+    "scythe_of_vyse": "邪恶镰刀",
+    "bloodthorn": "血棘",
+    "nullifier": "否决坠饰",
+    "sphere": "林肯法球",
+    "manta": "幻影斧",
+    "sange_and_yasha": "散夜对剑",
+    "echo_sabre": "回音战刃",
+    "desolator": "黯灭",
+    "mjollnir": "雷神之锤",
+    "silver_edge": "白银之锋",
+    "invis_sword": "影刃",
+    "blink": "闪烁匕首",
+    "force_staff": "原力法杖",
+    "cyclone": "风杖",
+    "rod_of_atos": "阿托斯之棍",
+    "orchid": "紫怨",
+    "aether_lens": "以太透镜",
+    "octarine_core": "八面玲珑",
+    "refresher": "刷新球",
+    "arcane_boots": "秘法鞋",
+    "guardian_greaves": "卫士胫甲",
+    "mekansm": "梅肯斯姆",
+    "pipe": "洞察烟斗",
+    "crimson_guard": "赤红甲",
+    "lotus_orb": "莲花宝珠",
+    "solar_crest": "太阳纹章",
+    "spirit_vessel": "魂之灵瓮",
+    "urn_of_shadows": "影之灵龛",
+    "vladmir": "弗拉迪米尔的祭品",
+    "helm_of_the_overlord": "主宰头盔",
+    "wraith_pact": "怨灵之契",
+    "boots_of_bearing": "行进之靴",
+    "pavise": "圣盾",
+    "aeon_disk": "永恒之盘",
+    "wind_waker": "狂风之力",
+    "gleipnir": "缚灵索",
+    "harpoon": "鱼叉",
+    "disperser": "驱散之锤",
+    "phylactery": "圣物匣",
+    "khanda": "坎达",
+}
+
+_ITEM_NAME_CACHE: dict[str, str] | None = None
+
+
+def _item_zh(internal_key: str) -> str:
+    """物品内部名（``black_king_bar``）→ 官方中文名；查不到返回内部名。
+
+    优先用上面的大件白名单；白名单没有时回退查 ``item_ids.json``
+    （``id → {n: 内部名, zh: 中文名}``）的反向映射。
+    """
+    if internal_key in _KEY_ITEMS:
+        return _KEY_ITEMS[internal_key]
+    global _ITEM_NAME_CACHE
+    if _ITEM_NAME_CACHE is None:
+        table: dict[str, str] = {}
+        try:
+            from .item_icons import _load as _load_items
+
+            for entry in _load_items().values():
+                if isinstance(entry, dict):
+                    n, zh = entry.get("n"), entry.get("zh")
+                    if n and zh:
+                        table[str(n)] = str(zh)
+        except Exception:
+            table = {}
+        _ITEM_NAME_CACHE = table
+    return _ITEM_NAME_CACHE.get(internal_key, internal_key)
+
+
+def _key_item_timings(purchase_log, limit: int = 4) -> list[tuple[int, str]]:
+    """从 purchase_log 提取关键大件的成型时点，返回 [(秒, 中文名), ...]。
+
+    只看白名单/大件表里的物品；同一物品只取最早一次（避免重复购买刷屏）。
+    """
+    seen: dict[str, int] = {}
+    for entry in purchase_log or []:
+        if not isinstance(entry, dict):
+            continue
+        key = str(entry.get("key") or "")
+        t = entry.get("time")
+        if key and isinstance(t, (int, float)) and key not in seen:
+            zh = _item_zh(key)
+            # 只保留大件（白名单命中，或中文名带「杖/剑/锤/心/甲/球/靴」等除外，
+            # 这里简单以白名单 + 价格过滤，白名单已覆盖主流大件）
+            if key in _KEY_ITEMS:
+                seen[key] = int(t)
+    ordered = sorted(seen.items(), key=lambda kv: kv[1])
+    return [(t, _KEY_ITEMS[k]) for k, t in ordered[:limit]]
+
+
 def _replay_material(match, hero_name) -> str:
     """把 ``match.replay`` 格式化成模型能读懂的中文结构化素材。
 
@@ -935,6 +1061,39 @@ def _replay_material(match, hero_name) -> str:
         if dire:
             lines.append("夜魇方：\n" + "\n".join(dire))
 
+    # ---- 视野控制（双方插眼 / 排眼总量）----
+    def vision(ps):
+        obs = sum(int(p.get("obs_placed") or 0) for p in ps)
+        sen = sum(int(p.get("sen_placed") or 0) for p in ps)
+        ok = sum(int(p.get("observer_kills") or 0) for p in ps)
+        return obs, sen, ok
+
+    r_ps = [p for p in all_players if p.get("is_radiant")]
+    d_ps = [p for p in all_players if not p.get("is_radiant")]
+    if r_ps or d_ps:
+        ro, rs, rk = vision(r_ps)
+        do, ds, dk = vision(d_ps)
+        lines.append(
+            f"视野控制：天辉插眼 {ro} 观察 + {rs} 真视、排眼 {rk}；"
+            f"夜魇插眼 {do} 观察 + {ds} 真视、排眼 {dk}"
+        )
+
+    # ---- 关键物品成型时点（双方核心的大件）----
+    # 只挑每方最早做出关键大件的 1-2 人，讲「谁在什么时间拿出了什么」。
+    item_bits = []
+    for p in all_players:
+        timings = _key_item_timings(p.get("purchase_log"))
+        if not timings:
+            continue
+        name = hero_name(p.get("hero_id", 0))
+        side = "天辉" if p.get("is_radiant") else "夜魇"
+        first_t, first_item = timings[0]
+        # 只报最早一件最有代表性的大件，避免刷屏
+        item_bits.append((first_t, f"{mmss(first_t)} {side}·{name} {first_item}"))
+    if item_bits:
+        item_bits.sort()
+        lines.append("关键物品成型：" + "；".join(b for _, b in item_bits[:6]))
+
     return "\n".join(lines)
 
 
@@ -997,36 +1156,38 @@ def _fix_cross_side(text: str, match, hero_name) -> str:
 
 _REPLAY_SYSTEM_PROMPT = (
     "你是资深 Dota2 数据分析师，正在用**录像解析数据**复盘一整场比赛。"
-    "请严格按下面三点写赛后总结，先写小标题、再写正文，"
-    "小标题固定为以下三行（原样照抄，不要改写、不要加序号）：\n"
-    "### 天辉方的表现\n"
-    "### 夜魇方的表现\n"
-    "### 一句话总结\n"
-    "三个栏目各写一段、顺序固定。\n"
+    "请按下面四个小标题写一篇复盘，先写小标题、再写正文，"
+    "小标题固定为以下四行（原样照抄，不要改写、不要加序号）：\n"
+    "### 比赛进程\n"
+    "### 团战与关键目标\n"
+    "### 优势与失误\n"
+    "### 亮眼与糟糕表现\n"
+    "四个栏目各写一段、顺序固定。\n"
+    "**内容要求（每栏覆盖的维度）**：\n"
+    "1. **比赛进程**：按**前期 / 中期 / 后期**的时间线讲局势变化——"
+    "前期谁打开局面（一血、对线优劣），中期经济经验曲线何时拉开或胶着，"
+    "后期如何定胜负；穿插**关键物品成型时点**（谁在几分钟拿出了什么大件）"
+    "与**视野控制**（哪方插眼/排眼更主动）对局势的影响。\n"
+    "2. **团战与关键目标**：讲**团战得失**——哪波团战哪方占优、规模多大、"
+    "奠定了什么；以及推塔/兵营/肉山/不朽盾这些关键目标的归属与节奏。\n"
+    "3. **优势与失误**：复盘双方各自的**优势**（做对了什么：节奏、出装、"
+    "控图、抓机会）与**失误**（哪里没做好：避战、对线崩盘、关键团战输掉、"
+    "装备成型太慢、视野被压制）。\n"
+    "4. **亮眼与糟糕表现**：点名本场**最亮眼的 1-2 人**（结合其百分位表现/"
+    "KDA/关键作用，说清为何亮眼）与**最糟糕的 1-2 人**（说清拖后腿在哪）。\n"
     "**分边规则（最高优先级，违反即为错误）**：每个英雄**只属于天辉或夜魇其中一方**。\n"
     "材料里「各玩家录像级表现」已按「天辉方：」「夜魇方：」**分组**列出，"
-    "卡片正文也以「## 天辉」「## 夜魇」分段、每段各 5 人。\n"
-    "写「### 天辉方的表现」时**只能**从天辉方那 5 人里挑人；"
-    "写「### 夜魇方的表现」时**只能**从夜魇方那 5 人里挑人。\n"
-    "**绝不把夜魇的英雄写进天辉栏目，反之亦然**——"
-    "写每个英雄名前，先核对他出现在「天辉方：」还是「夜魇方：」组里。\n"
+    "卡片正文也以「## 天辉」「## 夜魇」分段、每段各 5 人。"
+    "提到某英雄时，先核对他属于哪一方，**绝不把一方的英雄当成另一方**。\n"
     "**称呼规则（必须遵守）**：一律用**英雄名**称呼玩家，"
     "不要写玩家昵称、账号 ID 或「匿名玩家」。\n"
-    "**篇幅（硬约束）**：全文（三个栏目正文相加）**不得超过 500 字**，"
-    "宁少勿多，300-400 字更好读；每方只挑最有信息量的 1-2 人讲，"
-    "某队表现均匀就用一句话概括整体，不要人人写一句。\n"
-    "**内容来源（重点）**：除了 KDA/经济这些静态数据，材料里还有**录像解析**"
-    "得到的一血时间、关键目标时间线（推塔/肉山）、主要团战、经济曲线拐点、"
-    "各玩家的对线效率与百分位表现。"
-    "**优先用这些动态信息讲清「这场比赛是怎么赢/输的」**："
-    "比如哪方前期靠一血和先塔打开局面、哪波关键团战奠定胜负、"
-    "经济曲线从何时拉开、谁的对线打穿/被打穿。"
-    "不要只复述数字，要讲出节奏与转折。\n"
+    "**篇幅（硬约束）**：全文（四个栏目正文相加）**不得超过 1200 字**，"
+    "宁精勿滥；每栏 2-4 句即可，不必面面俱到，挑最有信息量的讲。\n"
     "格式要求：\n"
-    "- 只用中文；第 1、2 点各 2-3 句，第 3 点严格一句话；\n"
+    "- 只用中文；\n"
     "- 提到英雄时用两个星号包住英雄名（**英雄名**），小标题行不要加星号；\n"
-    "- 只引用材料里真实出现的数据，不要编造；\n"
-    "- 不要输出除三个小标题以外的标题、表格或代码块；\n"
+    "- 引用材料里真实出现的数据（时间点、经济差、百分位、插眼数等），不要编造；\n"
+    "- 不要输出除四个小标题以外的标题、表格或代码块；\n"
     "- 某项数据缺失时据实略过，不要硬凑。"
 )
 
@@ -1110,8 +1271,97 @@ async def summarize_match_replay(host, match, cards: list[str], event=None,
         logger.warning("Dota2 录像总结为空。")
         return ""
 
-    # 代码级兜底：纠正「跨边取人」（把夜魇英雄写进天辉栏目之类的错误）。
-    text = _fix_cross_side(text, match, hero_name)
+    # 代码级兜底：剔除「点名了本场不存在的英雄」这类幻觉（复盘按时间线写，
+    # 不再有「天辉方的表现/夜魇方的表现」分栏，跨边校验改为「存在性校验」）。
+    text = _drop_phantom_heroes(text, match, hero_name)
 
-    kind = detect_kind(cards)
-    return format_analysis(text, cards, max_chars=max_chars, kind=kind)
+    return _format_replay(text, cards, max_chars=_REPLAY_MAX_CHARS)
+
+
+_REPLAY_MAX_CHARS = 1200
+
+
+def _format_replay(text: str, cards: list[str], max_chars: int) -> str:
+    """把录像复盘文本排成卡片可用的形式：保留模型的四个小标题 + 英雄加粗。
+
+    与三点式 ``format_analysis`` 不同，这里**不重新分栏** —— 复盘已由模型按
+    「比赛进程 / 团战与关键目标 / 优势与失误 / 亮眼与糟糕表现」四个小标题写好，
+    直接保留结构、只对正文加粗英雄名。总超长时按「分栏」从后往前收缩，
+    而不是按句子硬砍（避免砍掉后面整栏、留下残缺结构）。
+    """
+    body = (text or "").strip().replace("`", "")
+    if not body:
+        return ""
+    terms = _match_terms(cards)
+    out = _bold_terms(body, terms)
+    if not max_chars or len(out) <= max_chars:
+        return out
+
+    # 超限时按 ### 分栏整体收缩：逐栏精简，先压最长栏。
+    blocks = _split_hash_sections(out)
+    if not blocks:
+        return _shrink_text(out, max_chars)
+    bodies = [b for _, b in blocks]
+    budget = max_chars
+    # 标题行的开销按每栏「### 标题\\n\\n」≈ 12 字预留
+    per_block_overhead = 14 * len(blocks)
+    budget = max(max_chars - per_block_overhead, max_chars // 2)
+    shrunk = _shrink_section_bodies(bodies, budget)
+    return "\n\n".join(
+        f"### {t}\n\n{b}" for (t, _), b in zip(blocks, shrunk) if b.strip()
+    )
+
+
+def _split_hash_sections(text: str) -> list[tuple[str, str]]:
+    """按行首 ``### xxx`` 把文本切成 [(标题, 正文), ...]；切不出返回空列表。"""
+    lines = text.splitlines()
+    heads = [i for i, ln in enumerate(lines)
+             if ln.lstrip().startswith("###")]
+    if not heads:
+        return []
+    out: list[tuple[str, str]] = []
+    for order, start in enumerate(heads):
+        end = heads[order + 1] if order + 1 < len(heads) else len(lines)
+        title = lines[start].lstrip("#").strip()
+        body = "\n".join(lines[start + 1:end]).strip()
+        out.append((title, body))
+    return out
+
+
+def _drop_phantom_heroes(text: str, match, hero_name) -> str:
+    """剔除复盘里点名了**本场不存在**的英雄的句子（代码级兜底）。
+
+    时间线复盘不再按边分栏，原来的「跨边取人」校验不再适用；但模型仍可能
+    编造一个根本没上场的英雄（幻觉）。这里把含「幻影英雄」的**整句**删掉，
+    并记日志。本场真实英雄名集合来自 ``match.players``。
+    """
+    if not text or not getattr(match, "players", None):
+        return text
+    real = {hero_name(p.hero_id) for p in match.players}
+    real.discard("")
+
+    # 已知英雄全集：从英雄表里拿所有中文名，用来识别「文本里提到的是不是英雄」
+    try:
+        from .hero_names import all_hero_names
+        universe = set(all_hero_names())
+    except Exception:
+        universe = set()
+
+    phantom = {n for n in universe if n and n not in real and n in text}
+    if not phantom:
+        return text
+    logger.warning(f"Dota2 录像复盘出现本场不存在的英雄 {sorted(phantom)}，已剔除相关句子。")
+
+    kept: list[str] = []
+    for para in text.split("\n"):
+        # 小标题行永远保留
+        if para.lstrip().startswith("#"):
+            kept.append(para)
+            continue
+        # 按句切分，删掉含幻影英雄的句子
+        sentences = re.split(r"(?<=[。！？；])", para)
+        kept_s = [s for s in sentences if not any(p in s for p in phantom)]
+        line = "".join(kept_s).strip()
+        if line:
+            kept.append(line)
+    return "\n".join(kept)

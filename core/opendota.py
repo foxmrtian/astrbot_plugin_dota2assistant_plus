@@ -377,6 +377,13 @@ class OpenDotaClient:
                 "is_roaming": bool(p.get("is_roaming", False)),
                 "lane_efficiency_pct": p.get("lane_efficiency_pct"),
                 "benchmarks": p.get("benchmarks") or {},
+                # 视野控制：插眼 / 排眼（复盘「视野」维度用）
+                "obs_placed": p.get("obs_placed", 0),
+                "sen_placed": p.get("sen_placed", 0),
+                "observer_kills": p.get("observer_kills", 0),
+                "sentry_kills": p.get("sentry_kills", 0),
+                # 购物时间线：复盘「关键物品成型时点」用（含 time/key）
+                "purchase_log": p.get("purchase_log") or [],
             })
         return {
             "duration": data.get("duration", 0),

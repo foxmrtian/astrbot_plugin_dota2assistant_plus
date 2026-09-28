@@ -12,6 +12,7 @@
 """
 from __future__ import annotations
 
+import math
 import os
 import re
 from typing import Optional
@@ -47,6 +48,47 @@ _LATIN_FONT_CANDIDATES = [
 # 用于判定“这个字体能不能排版中文”的探针字符
 _CJK_PROBE = "中文英雄段位战绩"
 _EMOJI_PROBE = "✅❌"
+
+# ------------------------------------------------------------ 手绘可爱风字体
+# pink 主题走「手绘可爱风」，配一款圆润的手写体。插件自带
+# ZCOOL KuaiLe（站酷快乐体，SIL OFL 授权，可免费商用），
+# 位置：<插件根>/assets/fonts/zcool-kuaile.ttf。
+# 自带文件不存在时回退到系统里任何一款圆体，最后才用普通字体。
+def _bundled_font_dir() -> str:
+    from pathlib import Path
+
+    return str(Path(__file__).resolve().parent.parent / "assets" / "fonts")
+
+
+def _cute_font_candidates() -> list[str]:
+    return [
+        os.path.join(_bundled_font_dir(), "zcool-kuaile.ttf"),
+        # 系统里可能存在的圆体（非必需，有则更佳）
+        "/usr/share/fonts/truetype/zcool/zcool-kuaile.ttf",
+        "/usr/share/fonts/opentype/zcool-kuaile/ZCOOLKuaiLe-Regular.ttf",
+    ]
+
+
+def find_cute_font() -> Optional[str]:
+    """返回手绘可爱风用的字体路径；找不到返回 None（调用方回退 CJK 字体）。"""
+    for path in _cute_font_candidates():
+        if os.path.exists(path) and _covers(path, _CJK_PROBE):
+            return path
+    return None
+
+
+_cute_font_resolved: Optional[str] = None
+_cute_font_done = False
+
+
+def _cute_font_path() -> Optional[str]:
+    """带缓存的可爱字体路径（只探测一次）。"""
+    global _cute_font_resolved, _cute_font_done
+    if not _cute_font_done:
+        _cute_font_resolved = find_cute_font()
+        _cute_font_done = True
+    return _cute_font_resolved
+
 
 # 字形覆盖缓存，避免重复打开字体文件
 _glyph_cache: dict[tuple[str, int], frozenset[int]] = {}
@@ -121,16 +163,40 @@ def _load(path: Optional[str], size: int) -> Optional[ImageFont.FreeTypeFont]:
 
 
 class FontSet:
-    """一组针对特定字号解析好的字体，支持按字符回退。"""
+    """一组针对特定字号解析好的字体，支持按字符回退。
 
-    def __init__(self, size: int):
+    ``cute=True`` 时优先使用手绘可爱字体（站酷快乐体），缺字自动回退到
+    常规 CJK 字体 —— 可爱字体覆盖 GB2312 常用字，生僻字仍要靠回退兜底。
+    """
+
+    def __init__(self, size: int, cute: bool = False):
         self.size = size
+        self.cute = cute
         self.cjk = _load(find_cjk_font(), size)
         self.emoji = _load(find_emoji_font(), size)
         self.latin = _load(find_latin_font(), size)
+        self.cute_font = None
+        self._cute_cp: frozenset[int] = frozenset()
+        if cute:
+            path = _cute_font_path()
+            if path:
+                self.cute_font = _load(path, size)
+                cp = _glyph_cache.get((path, 0))
+                if cp is None:
+                    cp = _font_codepoints(path)
+                    _glyph_cache[(path, 0)] = cp
+                self._cute_cp = cp
         self._emoji_codepoints = None
         if self.emoji is not None:
             self._emoji_codepoints = frozenset()
+
+    def _cute_has(self, ch: str) -> bool:
+        """可爱字体是否覆盖该字符（cmap 读不到时乐观为 True）。"""
+        if self.cute_font is None:
+            return False
+        if not self._cute_cp:
+            return True
+        return ord(ch) in self._cute_cp
 
     @property
     def usable(self) -> bool:
@@ -149,6 +215,9 @@ class FontSet:
         elif ord(ch) > 0x2000 and not (0x3000 <= ord(ch) <= 0x9FFF):
             # 箭头、破折号等符号：优先中文字体，其次 emoji 字体
             font = self.cjk or self.emoji or self.latin
+        elif self.cute_font is not None and self._cute_has(ch):
+            # 手绘可爱风：可爱字体优先，缺字回退常规 CJK
+            font = self.cute_font
         else:
             font = self.cjk or self.latin or self.emoji
         return font or ImageFont.load_default()
@@ -1439,6 +1508,7 @@ def _match_tokens(theme) -> dict:
 
     return {
         "dark": bool(t.get("dark", False)),
+        "style": str(t.get("style") or ""),
         "bg": g("bg", _M_BG),
         "panel": g("panel", _M_PANEL),
         "panel2": g("panel2", _M_PANEL2),
@@ -1877,10 +1947,18 @@ def _draw_team_band(draw, team: dict, tok: dict, fonts, y: int) -> None:
     """分队标题：一行内给出胜负、总击杀、团队经济。"""
     left, right = _M_PAD, _M_W - _M_PAD
     won = team.get("result") == "获胜"
-    draw.rounded_rectangle((left, y, right, y + _M_BAND_H), radius=8,
-                           fill=tok["panel2"])
+    cute = tok.get("style") == "handdrawn"
+    radius = 16 if cute else 8
+    if cute:
+        # 手绘风：白色描边 + 更圆角，像一枚贴纸
+        draw.rounded_rectangle((left, y, right, y + _M_BAND_H), radius=radius,
+                               fill=tok["panel2"], outline=(255, 255, 255), width=2)
+    else:
+        draw.rounded_rectangle((left, y, right, y + _M_BAND_H), radius=radius,
+                               fill=tok["panel2"])
     # 左侧竖条标示胜负：色彩之外再给一个形状信号，色觉差异下也能分辨
-    draw.rounded_rectangle((left, y + 8, left + 4, y + _M_BAND_H - 8), radius=2,
+    draw.rounded_rectangle((left, y + 8, left + 4, y + _M_BAND_H - 8),
+                           radius=2 if not cute else 3,
                            fill=tok["win"] if won else tok["lose"])
     f_team = fonts(16)
     f_meta = fonts(12)
@@ -2044,9 +2122,17 @@ def _draw_analysis(draw, img, text: str, tok: dict, fonts, y: int,
     pad = 18
     h = pad + 30 + line_h * len(wrapped) + pad
     left, right = _M_PAD, _M_W - _M_PAD
-    draw.rounded_rectangle((left, y, right, y + h), radius=12, fill=tok["panel"])
-    draw.rounded_rectangle((left, y + 12, left + 4, y + h - 12), radius=2,
-                           fill=tok["accent"])
+    cute = tok.get("style") == "handdrawn"
+    if cute:
+        # 手绘风：更圆角 + 白色描边，像一张手账贴纸
+        draw.rounded_rectangle((left, y, right, y + h), radius=22,
+                               fill=tok["panel"], outline=(255, 255, 255), width=3)
+        draw.rounded_rectangle((left, y + 14, left + 5, y + h - 14), radius=3,
+                               fill=tok["accent"])
+    else:
+        draw.rounded_rectangle((left, y, right, y + h), radius=12, fill=tok["panel"])
+        draw.rounded_rectangle((left, y + 12, left + 4, y + h - 12), radius=2,
+                               fill=tok["accent"])
     _mtext(draw, left + pad, y + pad - 2, title, f_title, tok["accent"], bold=True)
     ty = y + pad + 30
     for line in wrapped:
@@ -2055,14 +2141,84 @@ def _draw_analysis(draw, img, text: str, tok: dict, fonts, y: int,
     return y + h
 
 
+# ------------------------------------------------------- 手绘可爱风装饰（pink）
+# 只被 ``style == "handdrawn"`` 的主题（pink）调用，不影响其它主题。
+
+def _cute_heart(draw: ImageDraw.ImageDraw, cx: float, cy: float, r: float,
+                fill: tuple) -> None:
+    """画一个爱心（两个上圆 + 下方三角）。cx/cy 为爱心中心偏上，r 为半径。"""
+    draw.ellipse((cx - r, cy - r * 0.9, cx, cy + r * 0.15), fill=fill)
+    draw.ellipse((cx, cy - r * 0.9, cx + r, cy + r * 0.15), fill=fill)
+    draw.polygon(
+        [(cx - r, cy - r * 0.05), (cx + r, cy - r * 0.05), (cx, cy + r * 1.05)],
+        fill=fill,
+    )
+
+
+def _cute_star(draw: ImageDraw.ImageDraw, cx: float, cy: float, r: float,
+               fill: tuple) -> None:
+    """画一个五角星。"""
+    pts = []
+    for i in range(10):
+        ang = -math.pi / 2 + i * math.pi / 5
+        rad = r if i % 2 == 0 else r * 0.42
+        pts.append((cx + rad * math.cos(ang), cy + rad * math.sin(ang)))
+    draw.polygon(pts, fill=fill)
+
+
+def _lighten(rgb: tuple, factor: float) -> tuple:
+    """把颜色按 ``factor``（0~1）向白色提亮。"""
+    r, g, b = rgb[:3]
+    f = max(0.0, min(1.0, float(factor)))
+    return (
+        int(round(r + (255 - r) * f)),
+        int(round(g + (255 - g) * f)),
+        int(round(b + (255 - b) * f)),
+    )
+
+
+def _draw_handdrawn_bg(draw: ImageDraw.ImageDraw, tok: dict, w: int, h: int) -> None:
+    """波点底纹：浅粉圆点铺满画布，营造手账纸的可爱感。"""
+    dot = _lighten(tok["line"], 0.45)
+    step = 46
+    r = 2
+    for y in range(step, h, step):
+        for x in range(step // 2, w, step):
+            draw.ellipse((x - r, y - r, x + r, y + r), fill=dot)
+
+
+def _draw_handdrawn_frame(draw: ImageDraw.ImageDraw, tok: dict, w: int, h: int) -> None:
+    """手绘双线圆角边框：外层粗 accent、内层细 line，模拟描边框。"""
+    accent = tok["accent"]
+    line = tok["line"]
+    # 外层
+    draw.rounded_rectangle((6, 6, w - 6, h - 6), radius=34,
+                           outline=accent, width=3)
+    # 内层（与外层留 6px 间隙，形成「双线」手绘感）
+    draw.rounded_rectangle((14, 14, w - 14, h - 14), radius=28,
+                           outline=line, width=1)
+
+
+def _draw_cute_corners(draw: ImageDraw.ImageDraw, tok: dict, w: int, h: int) -> None:
+    """四角装饰：对角布置爱心与星星。"""
+    accent = tok["accent"]
+    gold = tok["gold"]
+    m = 30
+    _cute_heart(draw, m, m, 9, accent)          # 左上
+    _cute_star(draw, w - m, m - 2, 11, gold)    # 右上
+    _cute_star(draw, m, h - m + 2, 10, gold)    # 左下
+    _cute_heart(draw, w - m, h - m, 9, accent)  # 右下
+
+
 def render_match_card(text: str, output_path: str, theme: Optional[dict] = None,
                       body_size: int = 17) -> str:
-    """把战报卡的 Markdown 渲染成深色卡片，返回输出路径。
+    """把战报卡的 Markdown 渲染成卡片，返回输出路径。
 
     与通用渲染器一致采用「先测量、后绘制」：横幅与每行玩家高度都是固定值，
     先按块累加算出画布高度，再一次性绘制，末尾的评价区才能紧贴图片底部。
     """
     tok = _match_tokens(theme)
+    cute = tok.get("style") == "handdrawn"
     body, analysis = split_match_analysis(text)
     data = _parse_match_body(body)
 
@@ -2070,11 +2226,14 @@ def render_match_card(text: str, output_path: str, theme: Optional[dict] = None,
 
     def fonts(size: int) -> FontSet:
         if size not in fonts_by_size:
-            fonts_by_size[size] = FontSet(size)
+            fonts_by_size[size] = FontSet(size, cute=cute)
         return fonts_by_size[size]
 
+    # 手绘风：四周额外留白，给边框与四角装饰腾位置，避免压到内容
+    hd_pad = 22 if cute else 0
+
     # ---- 先算总高（评价区也要按真实高度计入，否则会被裁到画布外）----
-    height = _M_TOP
+    height = _M_TOP + hd_pad
     height += _M_BANNER_H + 18
     for team in data["teams"]:
         height += _M_BAND_H + 10
@@ -2082,11 +2241,17 @@ def render_match_card(text: str, output_path: str, theme: Optional[dict] = None,
         height += 16
     if analysis:
         height += 22 + _analysis_block_height(analysis, fonts(15), _M_CW - 36) + 18
+    height += hd_pad
+    height += 12  # 底部留一点呼吸
 
     img = Image.new("RGBA", (_M_W, height), tok["bg"] + (255,))
     draw = ImageDraw.Draw(img)
 
-    y = _M_TOP
+    # 手绘风的波点底纹先铺（在内容之下）
+    if cute:
+        _draw_handdrawn_bg(draw, tok, _M_W, height)
+
+    y = _M_TOP + hd_pad
     if data.get("banner") or data.get("score"):
         _draw_banner(img, draw, data, tok, fonts, y)
         y += _M_BANNER_H + 18
@@ -2105,6 +2270,11 @@ def render_match_card(text: str, output_path: str, theme: Optional[dict] = None,
 
     if analysis:
         y = _draw_analysis(draw, img, analysis, tok, fonts, y + 22, _M_CW - 36)
+
+    # 手绘风的边框与四角装饰最后叠加（盖在内容之上，但它们都在留白区）
+    if cute:
+        _draw_handdrawn_frame(draw, tok, _M_W, height)
+        _draw_cute_corners(draw, tok, _M_W, height)
 
     out = img.convert("RGB")
     out.save(output_path, "PNG")

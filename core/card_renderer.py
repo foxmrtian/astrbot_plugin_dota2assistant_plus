@@ -76,6 +76,9 @@ def _template(theme: Optional[dict] = None) -> Optional[str]:
                 html,
                 count=1,
             )
+    # 手绘可爱风（pink）：给 <body> 加 handdrawn 类，启用模板里的装饰 CSS。
+    if theme and str(theme.get("style") or "") == "handdrawn":
+        html = re.sub(r"(?m)^<body\b", '<body class="handdrawn"', html, count=1)
     return html
 
 
@@ -108,9 +111,10 @@ _THEME_PRESETS: dict[str, dict] = {
         "win": "#7fb069", "lose": "#c25a4e",
         "analysis_bg": "#161210", "analysis_line": "#c9a227",
     },
-    # 粉色：粉底 + 玫红强调，柔和可爱
+    # 粉色：粉底 + 玫红强调，柔和可爱（手绘可爱风：圆润字体 + 手绘装饰）
     "pink": {
         "dark": False,
+        "style": "handdrawn",
         "bg": "#fff5f8", "panel": "#ffeef4", "panel2": "#ffe3ee",
         "line": "#f7c9da", "ink": "#5b2333", "ink2": "#7a3a4e",
         "muted": "#a86b7e", "faint": "#c08a9a",
